@@ -86,6 +86,16 @@ export class OfficeState {
       }
     }
 
+    for (const ch of this.characters.values()) {
+      if (this.getAssignedZoneLabelsForCharacter(ch).length > 0) {
+        ch.path = [];
+        ch.moveProgress = 0;
+        if (ch.state === CharacterState.WALK) {
+          ch.state = CharacterState.IDLE;
+        }
+      }
+    }
+
     // Reassign characters to new seats, preserving existing assignments when possible
     for (const seat of this.seats.values()) {
       seat.assigned = false;
@@ -95,7 +105,7 @@ export class OfficeState {
     for (const ch of this.characters.values()) {
       if (ch.seatId && this.seats.has(ch.seatId)) {
         const seat = this.seats.get(ch.seatId)!;
-        if (!seat.assigned) {
+        if (!seat.assigned && this.isTileAllowedForCharacter(ch, seat.seatCol, seat.seatRow)) {
           seat.assigned = true;
           // Snap character to seat position
           ch.tileCol = seat.seatCol;
@@ -114,7 +124,7 @@ export class OfficeState {
     // Second pass: assign remaining characters to free seats
     for (const ch of this.characters.values()) {
       if (ch.seatId) continue;
-      const seatId = this.findFreeSeat();
+      const seatId = this.findFreeSeat(ch);
       if (seatId) {
         this.seats.get(seatId)!.assigned = true;
         ch.seatId = seatId;
@@ -127,14 +137,16 @@ export class OfficeState {
       }
     }
 
-    // Relocate any characters that ended up outside bounds or on non-walkable tiles
+    // Relocate any characters that ended up outside bounds, non-walkable tiles, or their zone.
     for (const ch of this.characters.values()) {
       if (ch.seatId) continue; // seated characters are fine
       if (
         ch.tileCol < 0 ||
         ch.tileCol >= layout.cols ||
         ch.tileRow < 0 ||
-        ch.tileRow >= layout.rows
+        ch.tileRow >= layout.rows ||
+        !isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles) ||
+        !this.isTileAllowedForCharacter(ch, ch.tileCol, ch.tileRow)
       ) {
         this.relocateCharacterToWalkable(ch);
       }
@@ -143,8 +155,9 @@ export class OfficeState {
 
   /** Move a character to a random walkable tile */
   private relocateCharacterToWalkable(ch: Character): void {
-    if (this.walkableTiles.length === 0) return;
-    const spawn = this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)];
+    const walkableTiles = this.getAllowedWalkableTilesForCharacter(ch);
+    if (walkableTiles.length === 0) return;
+    const spawn = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
     ch.tileCol = spawn.col;
     ch.tileRow = spawn.row;
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
@@ -157,6 +170,82 @@ export class OfficeState {
     return this.layout;
   }
 
+  private getZoneLabelAt(col: number, row: number): string | null {
+    if (col < 0 || col >= this.layout.cols || row < 0 || row >= this.layout.rows) return null;
+    const zoneTiles = this.layout.zoneTiles;
+    if (!zoneTiles || zoneTiles.length !== this.layout.tiles.length) return null;
+    return zoneTiles[row * this.layout.cols + col] ?? null;
+  }
+
+  private getBaseAgentId(ch: Character): number {
+    if (ch.isSubagent && ch.parentAgentId !== null) {
+      const parent = this.characters.get(ch.parentAgentId);
+      return parent ? this.getBaseAgentId(parent) : ch.parentAgentId;
+    }
+    if (ch.leadAgentId !== undefined) return ch.leadAgentId;
+    return ch.id;
+  }
+
+  private getBaseAgentIdForId(agentId: number): number {
+    const ch = this.characters.get(agentId);
+    return ch ? this.getBaseAgentId(ch) : agentId;
+  }
+
+  private getAssignedZoneLabelsForBaseId(baseAgentId: number): string[] {
+    const labels = this.layout.agentZoneAssignments?.[String(baseAgentId)] ?? [];
+    const knownZones = new Set((this.layout.zones ?? []).map((zone) => zone.label));
+    return labels.filter((label) => knownZones.has(label));
+  }
+
+  private getAllAgentZoneLabels(): string[] {
+    const knownZones = new Set((this.layout.zones ?? []).map((zone) => zone.label));
+    return (this.layout.allAgentZoneLabels ?? []).filter((label) => knownZones.has(label));
+  }
+
+  private getAssignedZoneLabelsForCharacter(ch: Character): string[] {
+    return this.getAssignedZoneLabelsForBaseId(this.getBaseAgentId(ch));
+  }
+
+  private tileAllowedForAssignments(labels: string[], col: number, row: number): boolean {
+    if (labels.length === 0) return true;
+    const tileZoneLabel = this.getZoneLabelAt(col, row);
+    return (
+      tileZoneLabel === null ||
+      labels.includes(tileZoneLabel) ||
+      this.getAllAgentZoneLabels().includes(tileZoneLabel)
+    );
+  }
+
+  private isTileAllowedForCharacter(ch: Character, col: number, row: number): boolean {
+    return this.tileAllowedForAssignments(this.getAssignedZoneLabelsForCharacter(ch), col, row);
+  }
+
+  isTileAllowedForAgent(agentId: number, col: number, row: number): boolean {
+    const ch = this.characters.get(agentId);
+    if (ch) return this.isTileAllowedForCharacter(ch, col, row);
+    return this.tileAllowedForAssignments(
+      this.getAssignedZoneLabelsForBaseId(this.getBaseAgentIdForId(agentId)),
+      col,
+      row,
+    );
+  }
+
+  private getAllowedWalkableTilesForCharacter(ch: Character): Array<{ col: number; row: number }> {
+    const labels = this.getAssignedZoneLabelsForCharacter(ch);
+    if (labels.length === 0) return this.walkableTiles;
+    return this.walkableTiles.filter((tile) =>
+      this.tileAllowedForAssignments(labels, tile.col, tile.row),
+    );
+  }
+
+  private getAllowedWalkableTilesForAgentId(agentId: number): Array<{ col: number; row: number }> {
+    const labels = this.getAssignedZoneLabelsForBaseId(this.getBaseAgentIdForId(agentId));
+    if (labels.length === 0) return this.walkableTiles;
+    return this.walkableTiles.filter((tile) =>
+      this.tileAllowedForAssignments(labels, tile.col, tile.row),
+    );
+  }
+
   /** Get the blocked-tile key for a character's own seat, or null */
   private ownSeatKey(ch: Character): string | null {
     if (!ch.seatId) return null;
@@ -165,16 +254,39 @@ export class OfficeState {
     return `${seat.seatCol},${seat.seatRow}`;
   }
 
-  /** Temporarily unblock a character's own seat, run fn, then re-block */
-  private withOwnSeatUnblocked<T>(ch: Character, fn: () => T): T {
-    const key = this.ownSeatKey(ch);
-    if (key) this.blockedTiles.delete(key);
-    const result = fn();
-    if (key) this.blockedTiles.add(key);
-    return result;
+  private getBlockedTilesForCharacter(ch: Character): Set<string> {
+    const labels = this.getAssignedZoneLabelsForCharacter(ch);
+    const blockedTiles = new Set(this.blockedTiles);
+    if (labels.length === 0) return blockedTiles;
+
+    for (let r = 0; r < this.layout.rows; r++) {
+      for (let c = 0; c < this.layout.cols; c++) {
+        if (c === ch.tileCol && r === ch.tileRow) continue;
+        if (!this.tileAllowedForAssignments(labels, c, r)) {
+          blockedTiles.add(`${c},${r}`);
+        }
+      }
+    }
+    return blockedTiles;
   }
 
-  private findFreeSeat(): string | null {
+  /** Build a pathfinding blocked set with a character's own seat unblocked. */
+  private withOwnSeatUnblocked<T>(ch: Character, fn: (blockedTiles: Set<string>) => T): T {
+    const blockedTiles = this.getBlockedTilesForCharacter(ch);
+    const key = this.ownSeatKey(ch);
+    if (key) blockedTiles.delete(key);
+    return fn(blockedTiles);
+  }
+
+  private findFreeSeat(agent?: Character | number): string | null {
+    const labels =
+      typeof agent === 'number'
+        ? this.getAssignedZoneLabelsForBaseId(this.getBaseAgentIdForId(agent))
+        : agent
+          ? this.getAssignedZoneLabelsForCharacter(agent)
+          : [];
+    const isConstrained = labels.length > 0;
+
     // Build set of tiles occupied by electronics (PCs, monitors, etc.)
     const electronicsTiles = new Set<string>();
     for (const item of this.layout.furniture) {
@@ -187,11 +299,23 @@ export class OfficeState {
       }
     }
 
-    // Collect free seats, split into those facing electronics and the rest
+    // Collect free seats, split into those facing electronics and zone priority.
     const pcSeats: string[] = [];
     const otherSeats: string[] = [];
+    const zonePcSeats: string[] = [];
+    const zoneOtherSeats: string[] = [];
+    const restPcSeats: string[] = [];
+    const restOtherSeats: string[] = [];
+    const sharedPcSeats: string[] = [];
+    const sharedOtherSeats: string[] = [];
+    const allAgentZoneLabels = this.getAllAgentZoneLabels();
     for (const [uid, seat] of this.seats) {
       if (seat.assigned) continue;
+      const zoneLabel = this.getZoneLabelAt(seat.seatCol, seat.seatRow);
+      const isSharedZone = zoneLabel !== null && allAgentZoneLabels.includes(zoneLabel);
+      if (isConstrained && zoneLabel !== null && !labels.includes(zoneLabel) && !isSharedZone) {
+        continue;
+      }
 
       // Check if this seat faces electronics (same logic as auto-state detection)
       let facesPC = false;
@@ -223,7 +347,31 @@ export class OfficeState {
           }
         }
       }
-      (facesPC ? pcSeats : otherSeats).push(uid);
+      if (isConstrained) {
+        if (zoneLabel === null) {
+          (facesPC ? restPcSeats : restOtherSeats).push(uid);
+        } else if (isSharedZone) {
+          (facesPC ? sharedPcSeats : sharedOtherSeats).push(uid);
+        } else {
+          (facesPC ? zonePcSeats : zoneOtherSeats).push(uid);
+        }
+      } else {
+        (facesPC ? pcSeats : otherSeats).push(uid);
+      }
+    }
+
+    const pick = (seats: string[]) =>
+      seats.length > 0 ? seats[Math.floor(Math.random() * seats.length)] : null;
+
+    if (isConstrained) {
+      return (
+        pick(zonePcSeats) ??
+        pick(zoneOtherSeats) ??
+        pick(restPcSeats) ??
+        pick(restOtherSeats) ??
+        pick(sharedPcSeats) ??
+        pick(sharedOtherSeats)
+      );
     }
 
     // Pick randomly: prefer PC seats, then any seat
@@ -285,12 +433,12 @@ export class OfficeState {
     let seatId: string | null = null;
     if (preferredSeatId && this.seats.has(preferredSeatId)) {
       const seat = this.seats.get(preferredSeatId)!;
-      if (!seat.assigned) {
+      if (!seat.assigned && this.isTileAllowedForAgent(id, seat.seatCol, seat.seatRow)) {
         seatId = preferredSeatId;
       }
     }
     if (!seatId) {
-      seatId = this.findFreeSeat();
+      seatId = this.findFreeSeat(id);
     }
 
     let ch: Character;
@@ -300,9 +448,10 @@ export class OfficeState {
       ch = createCharacter(id, palette, seatId, seat, hueShift);
     } else {
       // No seats — spawn at random walkable tile
+      const walkableTiles = this.getAllowedWalkableTilesForAgentId(id);
       const spawn =
-        this.walkableTiles.length > 0
-          ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
+        walkableTiles.length > 0
+          ? walkableTiles[Math.floor(Math.random() * walkableTiles.length)]
           : { col: 1, row: 1 };
       ch = createCharacter(id, palette, null, null, hueShift);
       ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
@@ -352,19 +501,21 @@ export class OfficeState {
   reassignSeat(agentId: number, seatId: string): void {
     const ch = this.characters.get(agentId);
     if (!ch) return;
+    const seat = this.seats.get(seatId);
+    if (!seat || seat.assigned || !this.isTileAllowedForCharacter(ch, seat.seatCol, seat.seatRow)) {
+      return;
+    }
     // Unassign old seat
     if (ch.seatId) {
       const old = this.seats.get(ch.seatId);
       if (old) old.assigned = false;
     }
     // Assign new seat
-    const seat = this.seats.get(seatId);
-    if (!seat || seat.assigned) return;
     seat.assigned = true;
     ch.seatId = seatId;
     // Pathfind to new seat (unblock own seat tile for this query)
-    const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
+    const path = this.withOwnSeatUnblocked(ch, (blockedTiles) =>
+      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, blockedTiles),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -390,8 +541,9 @@ export class OfficeState {
     if (!ch || !ch.seatId) return;
     const seat = this.seats.get(ch.seatId);
     if (!seat) return;
-    const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
+    if (!this.isTileAllowedForCharacter(ch, seat.seatCol, seat.seatRow)) return;
+    const path = this.withOwnSeatUnblocked(ch, (blockedTiles) =>
+      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, blockedTiles),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -415,13 +567,15 @@ export class OfficeState {
   walkToTile(agentId: number, col: number, row: number): boolean {
     const ch = this.characters.get(agentId);
     if (!ch || ch.isSubagent) return false;
-    if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) {
+    if (!this.isTileAllowedForCharacter(ch, col, row)) return false;
+    const blockedTiles = this.getBlockedTilesForCharacter(ch);
+    if (!isWalkable(col, row, this.tileMap, blockedTiles)) {
       // Also allow walking to own seat tile (blocked for others but not self)
       const key = this.ownSeatKey(ch);
       if (!key || key !== `${col},${row}`) return false;
     }
-    const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles),
+    const path = this.withOwnSeatUnblocked(ch, (pathBlockedTiles) =>
+      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, pathBlockedTiles),
     );
     if (path.length === 0) return false;
     ch.path = path;
@@ -454,10 +608,11 @@ export class OfficeState {
     }
 
     let spawn = { col: parentCol, row: parentRow };
-    if (this.walkableTiles.length > 0) {
-      let closest = this.walkableTiles[0];
+    const walkableTiles = this.getAllowedWalkableTilesForAgentId(parentAgentId);
+    if (walkableTiles.length > 0) {
+      let closest = walkableTiles[0];
       let closestDist = Infinity;
-      for (const tile of this.walkableTiles) {
+      for (const tile of walkableTiles) {
         if (occupiedTiles.has(`${tile.col},${tile.row}`)) continue;
         const d = dist(tile.col, tile.row);
         if (d < closestDist) {
@@ -739,9 +894,10 @@ export class OfficeState {
         continue; // skip normal FSM while effect is active
       }
 
+      const walkableTiles = this.getAllowedWalkableTilesForCharacter(ch);
       // Temporarily unblock own seat so character can pathfind to it
-      this.withOwnSeatUnblocked(ch, () =>
-        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
+      this.withOwnSeatUnblocked(ch, (blockedTiles) =>
+        updateCharacter(ch, dt, walkableTiles, this.seats, this.tileMap, blockedTiles),
       );
 
       // Tick bubble timer for waiting bubbles

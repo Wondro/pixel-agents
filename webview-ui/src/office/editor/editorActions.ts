@@ -2,7 +2,12 @@ import type { ColorValue } from '../../components/ui/types.js';
 import { DEFAULT_NEUTRAL_COLOR } from '../../constants.js';
 import { getCatalogEntry, getRotatedType, getToggledType } from '../layout/furnitureCatalog.js';
 import { getPlacementBlockedTiles } from '../layout/layoutSerializer.js';
-import type { OfficeLayout, PlacedFurniture, TileType as TileTypeVal } from '../types.js';
+import type {
+  OfficeLayout,
+  PlacedFurniture,
+  TileType as TileTypeVal,
+  ZoneDefinition,
+} from '../types.js';
 import { MAX_COLS, MAX_ROWS, TileType } from '../types.js';
 
 /** Paint a single tile with pattern and color. Returns new layout (immutable). */
@@ -44,6 +49,131 @@ export function paintTile(
   const tileColors = [...existingColors];
   tileColors[idx] = newColor;
   return { ...layout, tiles, tileColors };
+}
+
+function getZoneTiles(layout: OfficeLayout): Array<string | null> {
+  return layout.zoneTiles && layout.zoneTiles.length === layout.tiles.length
+    ? layout.zoneTiles
+    : new Array<string | null>(layout.tiles.length).fill(null);
+}
+
+function zoneExists(layout: OfficeLayout, label: string): boolean {
+  return (layout.zones ?? []).some((zone) => zone.label === label);
+}
+
+/** Paint or clear a zone assignment on a single tile. Returns new layout (immutable). */
+export function paintZone(
+  layout: OfficeLayout,
+  col: number,
+  row: number,
+  zoneLabel: string | null,
+): OfficeLayout {
+  const idx = row * layout.cols + col;
+  if (idx < 0 || idx >= layout.tiles.length) return layout;
+  if (zoneLabel !== null && !zoneExists(layout, zoneLabel)) return layout;
+
+  const existingZoneTiles = getZoneTiles(layout);
+  if (existingZoneTiles[idx] === zoneLabel) return layout;
+
+  const zoneTiles = [...existingZoneTiles];
+  zoneTiles[idx] = zoneLabel;
+  return { ...layout, zoneTiles };
+}
+
+/** Add a named zone. Labels are unique and trimmed. */
+export function addZone(layout: OfficeLayout, label: string, color: string): OfficeLayout {
+  const cleanLabel = label.trim();
+  if (!cleanLabel || zoneExists(layout, cleanLabel)) return layout;
+  const zone: ZoneDefinition = { label: cleanLabel, color };
+  return {
+    ...layout,
+    zones: [...(layout.zones ?? []), zone],
+    zoneTiles: getZoneTiles(layout),
+    allAgentZoneLabels: [...(layout.allAgentZoneLabels ?? [])],
+    agentZoneAssignments: { ...(layout.agentZoneAssignments ?? {}) },
+  };
+}
+
+/** Remove a zone and clear any tiles or agent assignments that reference it. */
+export function removeZone(layout: OfficeLayout, label: string): OfficeLayout {
+  if (!zoneExists(layout, label)) return layout;
+  const zones = (layout.zones ?? []).filter((zone) => zone.label !== label);
+  const zoneTiles = getZoneTiles(layout).map((tileLabel) =>
+    tileLabel === label ? null : tileLabel,
+  );
+  const allAgentZoneLabels = (layout.allAgentZoneLabels ?? []).filter(
+    (assignedLabel) => assignedLabel !== label,
+  );
+  const agentZoneAssignments: Record<string, string[]> = {};
+  for (const [agentId, labels] of Object.entries(layout.agentZoneAssignments ?? {})) {
+    const nextLabels = labels.filter((assignedLabel) => assignedLabel !== label);
+    if (nextLabels.length > 0) {
+      agentZoneAssignments[agentId] = nextLabels;
+    }
+  }
+  return { ...layout, zones, zoneTiles, allAgentZoneLabels, agentZoneAssignments };
+}
+
+/** Toggle whether a base agent is allowed in a zone. */
+export function setAgentZoneAssignment(
+  layout: OfficeLayout,
+  agentId: number,
+  zoneLabel: string,
+  assigned: boolean,
+): OfficeLayout {
+  if (!zoneExists(layout, zoneLabel)) return layout;
+  const key = String(agentId);
+  const agentZoneAssignments = { ...(layout.agentZoneAssignments ?? {}) };
+  const current = agentZoneAssignments[key] ?? [];
+  const nextLabels = assigned ? [zoneLabel] : current.filter((label) => label !== zoneLabel);
+  if (
+    nextLabels.length === current.length &&
+    nextLabels.every((label, index) => label === current[index])
+  ) {
+    return layout;
+  }
+  if (nextLabels.length > 0) {
+    agentZoneAssignments[key] = nextLabels;
+  } else {
+    delete agentZoneAssignments[key];
+  }
+  return { ...layout, agentZoneAssignments };
+}
+
+/** Toggle whether every base agent and spawned child may enter a zone. */
+export function setAllAgentsZoneAssignment(
+  layout: OfficeLayout,
+  zoneLabel: string,
+  assigned: boolean,
+): OfficeLayout {
+  if (!zoneExists(layout, zoneLabel)) return layout;
+  const current = layout.allAgentZoneLabels ?? [];
+  const allAgentZoneLabels = assigned
+    ? Array.from(new Set([...current, zoneLabel]))
+    : current.filter((label) => label !== zoneLabel);
+
+  const agentZoneAssignments = { ...(layout.agentZoneAssignments ?? {}) };
+  let agentAssignmentsChanged = false;
+  if (assigned) {
+    for (const [agentId, labels] of Object.entries(agentZoneAssignments)) {
+      const nextLabels = labels.filter((label) => label !== zoneLabel);
+      if (nextLabels.length > 0) {
+        agentZoneAssignments[agentId] = nextLabels;
+      } else {
+        delete agentZoneAssignments[agentId];
+      }
+      agentAssignmentsChanged = agentAssignmentsChanged || nextLabels.length !== labels.length;
+    }
+  }
+
+  if (
+    !agentAssignmentsChanged &&
+    allAgentZoneLabels.length === current.length &&
+    allAgentZoneLabels.every((label, index) => label === current[index])
+  ) {
+    return layout;
+  }
+  return { ...layout, allAgentZoneLabels, agentZoneAssignments };
 }
 
 /** Place furniture. Returns new layout (immutable). */
@@ -210,6 +340,7 @@ export function expandLayout(
 ): { layout: OfficeLayout; shift: { col: number; row: number } } | null {
   const { cols, rows, tiles, furniture, tileColors } = layout;
   const existingColors = tileColors || new Array(tiles.length).fill(null);
+  const existingZoneTiles = getZoneTiles(layout);
 
   let newCols = cols;
   let newRows = rows;
@@ -233,6 +364,7 @@ export function expandLayout(
   // Build new tile array
   const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
   const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
+  const newZoneTiles: Array<string | null> = new Array(newCols * newRows).fill(null);
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -240,6 +372,7 @@ export function expandLayout(
       const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
       newTiles[newIdx] = tiles[oldIdx];
       newColors[newIdx] = existingColors[oldIdx];
+      newZoneTiles[newIdx] = existingZoneTiles[oldIdx];
     }
   }
 
@@ -257,6 +390,7 @@ export function expandLayout(
       rows: newRows,
       tiles: newTiles,
       tileColors: newColors,
+      zoneTiles: newZoneTiles,
       furniture: newFurniture,
     },
     shift: { col: shiftCol, row: shiftRow },

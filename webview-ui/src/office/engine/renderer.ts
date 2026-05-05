@@ -32,6 +32,12 @@ import {
   SELECTION_HIGHLIGHT_COLOR,
   VOID_TILE_DASH_PATTERN,
   VOID_TILE_OUTLINE_COLOR,
+  ZONE_DEFAULT_COLORS,
+  ZONE_LABEL_BG,
+  ZONE_LABEL_COLOR,
+  ZONE_OVERLAY_ACTIVE_ALPHA,
+  ZONE_OVERLAY_ALPHA,
+  ZONE_OVERLAY_STROKE_ALPHA,
 } from '../../constants.js';
 import { getColorizedFloorSprite, hasFloorSprites, WALL_COLOR } from '../floorTiles.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
@@ -46,6 +52,7 @@ import type {
   Seat,
   SpriteData,
   TileType as TileTypeVal,
+  ZoneDefinition,
 } from '../types.js';
 import { CharacterState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
@@ -296,6 +303,100 @@ export function renderGridOverlay(
     }
     ctx.restore();
   }
+}
+
+function normalizeHexColor(hex: string): string {
+  const clean = hex.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return ZONE_DEFAULT_COLORS[0];
+  return `#${clean}`;
+}
+
+function renderZoneOverlay(
+  ctx: CanvasRenderingContext2D,
+  zoneTiles: Array<string | null>,
+  zones: ZoneDefinition[],
+  activeZoneLabel: string | null,
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+  cols: number,
+  rows: number,
+): void {
+  if (zones.length === 0) return;
+  const zoneByLabel = new Map(zones.map((zone) => [zone.label, zone]));
+  const s = TILE_SIZE * zoom;
+
+  ctx.save();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const label = zoneTiles[r * cols + c];
+      if (!label) continue;
+      const zone = zoneByLabel.get(label);
+      if (!zone) continue;
+      const alpha = label === activeZoneLabel ? ZONE_OVERLAY_ACTIVE_ALPHA : ZONE_OVERLAY_ALPHA;
+      const color = normalizeHexColor(zone.color);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.fillRect(offsetX + c * s, offsetY + r * s, s, s);
+      ctx.globalAlpha = ZONE_OVERLAY_STROKE_ALPHA;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(offsetX + c * s + 0.5, offsetY + r * s + 0.5, s - 1, s - 1);
+      ctx.globalAlpha = 1;
+    }
+  }
+  ctx.restore();
+}
+
+function renderZoneLabels(
+  ctx: CanvasRenderingContext2D,
+  zoneTiles: Array<string | null>,
+  zones: ZoneDefinition[],
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+  cols: number,
+  rows: number,
+): void {
+  if (zones.length === 0) return;
+  const zoneByLabel = new Set(zones.map((zone) => zone.label));
+  const tilesByLabel = new Map<string, Array<{ col: number; row: number }>>();
+  const s = TILE_SIZE * zoom;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const label = zoneTiles[r * cols + c];
+      if (!label || !zoneByLabel.has(label)) continue;
+      const group = tilesByLabel.get(label);
+      if (group) {
+        group.push({ col: c, row: r });
+      } else {
+        tilesByLabel.set(label, [{ col: c, row: r }]);
+      }
+    }
+  }
+
+  ctx.save();
+  ctx.font = `${Math.max(10, Math.round(5 * zoom))}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const [label, tiles] of tilesByLabel) {
+    if (tiles.length === 0) continue;
+    const avgCol = tiles.reduce((sum, tile) => sum + tile.col, 0) / tiles.length;
+    const avgRow = tiles.reduce((sum, tile) => sum + tile.row, 0) / tiles.length;
+    const x = offsetX + (avgCol + 0.5) * s;
+    const y = offsetY + (avgRow + 0.5) * s;
+    const metrics = ctx.measureText(label);
+    const padX = 4 * zoom;
+    const padY = 2 * zoom;
+    const w = metrics.width + padX * 2;
+    const h = Math.max(12 * zoom, 8 * zoom + padY * 2);
+    ctx.fillStyle = ZONE_LABEL_BG;
+    ctx.fillRect(x - w / 2, y - h / 2, w, h);
+    ctx.fillStyle = ZONE_LABEL_COLOR;
+    ctx.fillText(label, x, y);
+  }
+  ctx.restore();
 }
 
 /** Draw faint expansion placeholders 1 tile outside grid bounds (ghost border). */
@@ -557,6 +658,9 @@ export interface EditorRenderState {
   ghostBorderHoverCol: number;
   /** Hovered ghost border tile row (-1 to rows) */
   ghostBorderHoverRow: number;
+  zones: ZoneDefinition[];
+  zoneTiles: Array<string | null>;
+  activeZoneLabel: string | null;
 }
 
 export interface SelectionRenderState {
@@ -598,6 +702,20 @@ export function renderFrame(
 
   // Draw tiles (floor + wall base color)
   renderTileGrid(ctx, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols);
+
+  if (editor && editor.zoneTiles.length === cols * rows) {
+    renderZoneOverlay(
+      ctx,
+      editor.zoneTiles,
+      editor.zones,
+      editor.activeZoneLabel,
+      offsetX,
+      offsetY,
+      zoom,
+      cols,
+      rows,
+    );
+  }
 
   // Seat indicators (below furniture/characters, on top of floor)
   if (selection) {
@@ -694,6 +812,10 @@ export function renderFrame(
       editor.deleteButtonBounds = null;
       editor.rotateButtonBounds = null;
     }
+  }
+
+  if (editor && editor.zoneTiles.length === cols * rows) {
+    renderZoneLabels(ctx, editor.zoneTiles, editor.zones, offsetX, offsetY, zoom, cols, rows);
   }
 
   return { offsetX, offsetY };

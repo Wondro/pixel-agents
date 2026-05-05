@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button.js';
 import { ColorPicker } from '../../components/ui/ColorPicker.js';
 import { ItemSelect } from '../../components/ui/ItemSelect.js';
 import type { ColorValue } from '../../components/ui/types.js';
-import { CANVAS_FALLBACK_TILE_COLOR } from '../../constants.js';
+import { CANVAS_FALLBACK_TILE_COLOR, ZONE_DEFAULT_COLORS } from '../../constants.js';
 import { getColorizedSprite } from '../colorize.js';
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js';
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js';
@@ -14,19 +14,29 @@ import {
   getCatalogByCategory,
 } from '../layout/furnitureCatalog.js';
 import { getCachedSprite } from '../sprites/spriteCache.js';
-import type { TileType as TileTypeVal } from '../types.js';
+import type { AgentZoneAssignments, TileType as TileTypeVal, ZoneDefinition } from '../types.js';
 import { EditTool } from '../types.js';
 import { getWallSetCount, getWallSetPreviewSprite } from '../wallTiles.js';
+
+export interface BaseAgentOption {
+  id: number;
+  label: string;
+}
 
 interface EditorToolbarProps {
   activeTool: EditTool;
   selectedTileType: TileTypeVal;
   selectedFurnitureType: string;
   selectedFurnitureUid: string | null;
+  selectedZoneLabel: string | null;
   selectedFurnitureColor: ColorValue | null;
   floorColor: ColorValue;
   wallColor: ColorValue;
   selectedWallSet: number;
+  zones: ZoneDefinition[];
+  allAgentZoneLabels: string[];
+  agentZoneAssignments: AgentZoneAssignments;
+  baseAgents: BaseAgentOption[];
   onToolChange: (tool: EditTool) => void;
   onTileTypeChange: (type: TileTypeVal) => void;
   onFloorColorChange: (color: ColorValue) => void;
@@ -34,6 +44,11 @@ interface EditorToolbarProps {
   onWallSetChange: (setIndex: number) => void;
   onSelectedFurnitureColorChange: (color: ColorValue | null) => void;
   onFurnitureTypeChange: (type: string) => void;
+  onSelectedZoneChange: (label: string | null) => void;
+  onAddZone: (label: string, color: string) => void;
+  onRemoveZone: (label: string) => void;
+  onAgentZoneAssignmentChange: (agentId: number, zoneLabel: string, assigned: boolean) => void;
+  onAllAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
   loadedAssets?: LoadedAssetData;
 }
 
@@ -46,10 +61,15 @@ export function EditorToolbar({
   selectedTileType,
   selectedFurnitureType,
   selectedFurnitureUid,
+  selectedZoneLabel,
   selectedFurnitureColor,
   floorColor,
   wallColor,
   selectedWallSet,
+  zones,
+  allAgentZoneLabels,
+  agentZoneAssignments,
+  baseAgents,
   onToolChange,
   onTileTypeChange,
   onFloorColorChange,
@@ -57,12 +77,18 @@ export function EditorToolbar({
   onWallSetChange,
   onSelectedFurnitureColorChange,
   onFurnitureTypeChange,
+  onSelectedZoneChange,
+  onAddZone,
+  onRemoveZone,
+  onAgentZoneAssignmentChange,
+  onAllAgentsZoneAssignmentChange,
   loadedAssets,
 }: EditorToolbarProps) {
   const [activeCategory, setActiveCategory] = useState<FurnitureCategory>('desks');
   const [showColor, setShowColor] = useState(false);
   const [showWallColor, setShowWallColor] = useState(false);
   const [showFurnitureColor, setShowFurnitureColor] = useState(false);
+  const [newZoneName, setNewZoneName] = useState('');
 
   // Build dynamic catalog from loaded assets
   useEffect(() => {
@@ -102,9 +128,22 @@ export function EditorToolbar({
 
   const isFloorActive = activeTool === EditTool.TILE_PAINT || activeTool === EditTool.EYEDROPPER;
   const isWallActive = activeTool === EditTool.WALL_PAINT;
+  const isZoneActive = activeTool === EditTool.ZONE_PAINT;
   const isEraseActive = activeTool === EditTool.ERASE;
   const isFurnitureActive =
     activeTool === EditTool.FURNITURE_PLACE || activeTool === EditTool.FURNITURE_PICK;
+  const nextZoneColor = ZONE_DEFAULT_COLORS[zones.length % ZONE_DEFAULT_COLORS.length];
+
+  const submitNewZone = () => {
+    const trimmed = newZoneName.trim();
+    if (!trimmed) return;
+    onAddZone(trimmed, nextZoneColor);
+    setNewZoneName('');
+  };
+
+  const assignedToZone = (agentId: number, label: string) =>
+    (agentZoneAssignments[String(agentId)] ?? []).includes(label);
+  const allAgentsAssignedToZone = (label: string) => allAgentZoneLabels.includes(label);
 
   return (
     <div className="absolute bottom-76 left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]">
@@ -133,6 +172,20 @@ export function EditorToolbar({
           title="Paint walls (click to toggle)"
         >
           Wall
+        </Button>
+        <Button
+          variant={isZoneActive ? 'active' : 'default'}
+          size="md"
+          onClick={() => {
+            if (zones.length > 0 && selectedZoneLabel === null) {
+              onSelectedZoneChange(zones[0].label);
+            } else {
+              onToolChange(EditTool.ZONE_PAINT);
+            }
+          }}
+          title="Paint agent zones"
+        >
+          Zones
         </Button>
         <Button
           variant={isEraseActive ? 'active' : 'default'}
@@ -248,6 +301,149 @@ export function EditorToolbar({
       )}
 
       {/* Sub-panel: Furniture — stacked bottom-to-top via column-reverse */}
+      {isZoneActive && (
+        <div className="flex flex-col-reverse gap-4 max-w-[760px]">
+          <div className="flex gap-4 items-center flex-wrap">
+            <input
+              value={newZoneName}
+              onChange={(e) => setNewZoneName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitNewZone();
+              }}
+              placeholder="Zone name"
+              className="bg-bg-dark border-2 border-border text-text px-6 py-2 text-sm outline-none min-w-[160px]"
+            />
+            <Button
+              variant={newZoneName.trim() ? 'accent' : 'disabled'}
+              size="sm"
+              onClick={submitNewZone}
+              disabled={!newZoneName.trim()}
+            >
+              Add
+            </Button>
+          </div>
+
+          {zones.length > 0 && (
+            <div className="flex gap-6 overflow-x-auto pb-2">
+              {zones.map((zone) => {
+                const isAllAgentsZone = allAgentsAssignedToZone(zone.label);
+                const assignedAgents = baseAgents.filter((agent) =>
+                  assignedToZone(agent.id, zone.label),
+                );
+                const availableAgents = baseAgents.filter(
+                  (agent) => !isAllAgentsZone && !assignedToZone(agent.id, zone.label),
+                );
+                return (
+                  <div
+                    key={zone.label}
+                    className={`border-2 bg-bg-dark p-4 min-w-[220px] max-w-[280px] ${
+                      selectedZoneLabel === zone.label ? 'border-accent' : 'border-border'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4 mb-4">
+                      <button
+                        type="button"
+                        onClick={() => onSelectedZoneChange(zone.label)}
+                        className="w-12 h-12 border-2 border-white/40 cursor-pointer shrink-0"
+                        style={{ backgroundColor: zone.color }}
+                        title={zone.label}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onSelectedZoneChange(zone.label)}
+                        className="text-left text-sm text-text truncate flex-1 cursor-pointer"
+                        title={zone.label}
+                      >
+                        {zone.label}
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onRemoveZone(zone.label)}
+                        title="Remove zone"
+                        className="px-4"
+                      >
+                        X
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      {isAllAgentsZone && (
+                        <div className="flex items-center gap-4 bg-btn-bg border border-border px-4 py-2">
+                          <span className="text-xs truncate flex-1" title="All agents">
+                            All agents
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onAllAgentsZoneAssignmentChange(zone.label, false)}
+                            title="Remove all agents"
+                            className="px-3"
+                          >
+                            X
+                          </Button>
+                        </div>
+                      )}
+
+                      {assignedAgents.map((agent) => (
+                        <div
+                          key={agent.id}
+                          className="flex items-center gap-4 bg-btn-bg border border-border px-4 py-2"
+                        >
+                          <span className="text-xs truncate flex-1" title={agent.label}>
+                            {agent.label}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onAgentZoneAssignmentChange(agent.id, zone.label, false)}
+                            title="Remove agent"
+                            className="px-3"
+                          >
+                            X
+                          </Button>
+                        </div>
+                      ))}
+
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value === 'all') {
+                            onAllAgentsZoneAssignmentChange(zone.label, true);
+                            return;
+                          }
+                          const id = Number(e.target.value);
+                          if (Number.isFinite(id)) {
+                            onAgentZoneAssignmentChange(id, zone.label, true);
+                          }
+                        }}
+                        className="bg-bg border-2 border-border text-text px-4 py-2 text-sm outline-none"
+                        disabled={isAllAgentsZone || availableAgents.length === 0}
+                        title="Assign agent"
+                      >
+                        <option value="">
+                          {isAllAgentsZone
+                            ? 'All agents'
+                            : availableAgents.length === 0
+                              ? 'No agents'
+                              : 'Assign agent'}
+                        </option>
+                        {!isAllAgentsZone && <option value="all">All agents</option>}
+                        {availableAgents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {isFurnitureActive && (
         <div className="flex flex-col-reverse gap-4">
           {/* Category tabs + Pick — just above tool row */}

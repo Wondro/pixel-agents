@@ -150,6 +150,12 @@ function App() {
   }, []);
 
   const officeState = getOfficeState();
+  const baseAgentOptions = agents.flatMap((id) => {
+    const ch = officeState.characters.get(id);
+    if (ch?.isSubagent || ch?.leadAgentId !== undefined) return [];
+    const suffix = ch?.agentName ?? ch?.folderName ?? ch?.teamName;
+    return [{ id, label: suffix ? `Agent ${id} - ${suffix}` : `Agent ${id}` }];
+  });
 
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard;
@@ -231,10 +237,15 @@ function App() {
                   selectedTileType={editorState.selectedTileType}
                   selectedFurnitureType={editorState.selectedFurnitureType}
                   selectedFurnitureUid={selUid}
+                  selectedZoneLabel={editorState.selectedZoneLabel}
                   selectedFurnitureColor={selColor}
                   floorColor={editorState.floorColor}
                   wallColor={editorState.wallColor}
                   selectedWallSet={editorState.selectedWallSet}
+                  zones={officeState.getLayout().zones ?? []}
+                  allAgentZoneLabels={officeState.getLayout().allAgentZoneLabels ?? []}
+                  agentZoneAssignments={officeState.getLayout().agentZoneAssignments ?? {}}
+                  baseAgents={baseAgentOptions}
                   onToolChange={editor.handleToolChange}
                   onTileTypeChange={editor.handleTileTypeChange}
                   onFloorColorChange={editor.handleFloorColorChange}
@@ -242,6 +253,11 @@ function App() {
                   onWallSetChange={editor.handleWallSetChange}
                   onSelectedFurnitureColorChange={editor.handleSelectedFurnitureColorChange}
                   onFurnitureTypeChange={editor.handleFurnitureTypeChange}
+                  onSelectedZoneChange={editor.handleSelectedZoneChange}
+                  onAddZone={editor.handleAddZone}
+                  onRemoveZone={editor.handleRemoveZone}
+                  onAgentZoneAssignmentChange={editor.handleAgentZoneAssignmentChange}
+                  onAllAgentsZoneAssignmentChange={editor.handleAllAgentsZoneAssignmentChange}
                   loadedAssets={loadedAssets}
                 />
               );

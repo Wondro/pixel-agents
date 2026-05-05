@@ -4,14 +4,19 @@ import type { ColorValue } from '../components/ui/types.js';
 import { LAYOUT_SAVE_DEBOUNCE_MS, ZOOM_MAX, ZOOM_MIN } from '../constants.js';
 import type { ExpandDirection } from '../office/editor/editorActions.js';
 import {
+  addZone,
   canPlaceFurniture,
   expandLayout,
   getWallPlacementRow,
   moveFurniture,
   paintTile,
+  paintZone,
   placeFurniture,
   removeFurniture,
+  removeZone,
   rotateFurniture,
+  setAgentZoneAssignment,
+  setAllAgentsZoneAssignment,
   toggleFurnitureState,
 } from '../office/editor/editorActions.js';
 import type { EditorState } from '../office/editor/editorState.js';
@@ -48,6 +53,11 @@ interface EditorActions {
   handleWallSetChange: (setIndex: number) => void;
   handleSelectedFurnitureColorChange: (color: ColorValue | null) => void;
   handleFurnitureTypeChange: (type: string) => void; // FurnitureType enum or asset ID
+  handleSelectedZoneChange: (label: string | null) => void;
+  handleAddZone: (label: string, color: string) => void;
+  handleRemoveZone: (label: string) => void;
+  handleAgentZoneAssignmentChange: (agentId: number, zoneLabel: string, assigned: boolean) => void;
+  handleAllAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
   handleDeleteSelected: () => void;
   handleRotateSelected: () => void;
   handleToggleState: () => void;
@@ -254,6 +264,73 @@ export function useEditorActions(
     [editorState],
   );
 
+  const handleSelectedZoneChange = useCallback(
+    (label: string | null) => {
+      editorState.selectedZoneLabel = label;
+      if (label !== null) {
+        editorState.activeTool = EditTool.ZONE_PAINT;
+        editorState.clearSelection();
+        editorState.clearGhost();
+        editorState.clearDrag();
+      }
+      setEditorTick((n) => n + 1);
+    },
+    [editorState],
+  );
+
+  const handleAddZone = useCallback(
+    (label: string, color: string) => {
+      const os = getOfficeState();
+      const layout = os.getLayout();
+      const newLayout = addZone(layout, label, color);
+      if (newLayout !== layout) {
+        editorState.selectedZoneLabel = label.trim();
+        editorState.activeTool = EditTool.ZONE_PAINT;
+        applyEdit(newLayout);
+      }
+    },
+    [getOfficeState, editorState, applyEdit],
+  );
+
+  const handleRemoveZone = useCallback(
+    (label: string) => {
+      const os = getOfficeState();
+      const layout = os.getLayout();
+      const newLayout = removeZone(layout, label);
+      if (newLayout !== layout) {
+        if (editorState.selectedZoneLabel === label) {
+          editorState.selectedZoneLabel = newLayout.zones?.[0]?.label ?? null;
+        }
+        applyEdit(newLayout);
+      }
+    },
+    [getOfficeState, editorState, applyEdit],
+  );
+
+  const handleAgentZoneAssignmentChange = useCallback(
+    (agentId: number, zoneLabel: string, assigned: boolean) => {
+      const os = getOfficeState();
+      const layout = os.getLayout();
+      const newLayout = setAgentZoneAssignment(layout, agentId, zoneLabel, assigned);
+      if (newLayout !== layout) {
+        applyEdit(newLayout);
+      }
+    },
+    [getOfficeState, applyEdit],
+  );
+
+  const handleAllAgentsZoneAssignmentChange = useCallback(
+    (zoneLabel: string, assigned: boolean) => {
+      const os = getOfficeState();
+      const layout = os.getLayout();
+      const newLayout = setAllAgentsZoneAssignment(layout, zoneLabel, assigned);
+      if (newLayout !== layout) {
+        applyEdit(newLayout);
+      }
+    },
+    [getOfficeState, applyEdit],
+  );
+
   const handleDeleteSelected = useCallback(() => {
     const uid = editorState.selectedFurnitureUid;
     if (!uid) return;
@@ -454,6 +531,25 @@ export function useEditorActions(
         if (newLayout !== layout) {
           applyEdit(newLayout);
         }
+      } else if (editorState.activeTool === EditTool.ZONE_PAINT) {
+        if (
+          effectiveCol < 0 ||
+          effectiveCol >= layout.cols ||
+          effectiveRow < 0 ||
+          effectiveRow >= layout.rows
+        ) {
+          return;
+        }
+        if (!editorState.selectedZoneLabel) return;
+        const newLayout = paintZone(
+          layout,
+          effectiveCol,
+          effectiveRow,
+          editorState.selectedZoneLabel,
+        );
+        if (newLayout !== layout) {
+          applyEdit(newLayout);
+        }
       } else if (editorState.activeTool === EditTool.WALL_PAINT) {
         const idx = effectiveRow * layout.cols + effectiveCol;
         const isWall = layout.tiles[idx] === TileType.WALL;
@@ -588,6 +684,13 @@ export function useEditorActions(
       const layout = os.getLayout();
       if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return;
       const idx = row * layout.cols + col;
+      if (editorState.activeTool === EditTool.ZONE_PAINT) {
+        const newLayout = paintZone(layout, col, row, null);
+        if (newLayout !== layout) {
+          applyEdit(newLayout);
+        }
+        return;
+      }
       // Only erase non-VOID tiles
       if (layout.tiles[idx] === TileType.VOID) return;
       const newLayout = paintTile(layout, col, row, TileType.VOID);
@@ -595,7 +698,7 @@ export function useEditorActions(
         applyEdit(newLayout);
       }
     },
-    [getOfficeState, applyEdit],
+    [getOfficeState, editorState.activeTool, applyEdit],
   );
 
   return {
@@ -614,6 +717,11 @@ export function useEditorActions(
     handleWallSetChange,
     handleSelectedFurnitureColorChange,
     handleFurnitureTypeChange,
+    handleSelectedZoneChange,
+    handleAddZone,
+    handleRemoveZone,
+    handleAgentZoneAssignmentChange,
+    handleAllAgentsZoneAssignmentChange,
     handleDeleteSelected,
     handleRotateSelected,
     handleToggleState,

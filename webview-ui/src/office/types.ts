@@ -78,6 +78,7 @@ export interface ToolActivity {
 export const EditTool = {
   TILE_PAINT: 'tile_paint',
   WALL_PAINT: 'wall_paint',
+  ZONE_PAINT: 'zone_paint',
   FURNITURE_PLACE: 'furniture_place',
   FURNITURE_PICK: 'furniture_pick',
   SELECT: 'select',
@@ -115,6 +116,13 @@ export interface PlacedFurniture {
   color?: ColorValue;
 }
 
+export interface ZoneDefinition {
+  label: string;
+  color: string;
+}
+
+export type AgentZoneAssignments = Record<string, string[]>;
+
 export interface OfficeLayout {
   version: 1;
   cols: number;
@@ -123,6 +131,14 @@ export interface OfficeLayout {
   furniture: PlacedFurniture[];
   /** Per-tile color settings, parallel to tiles array. null = wall/no color */
   tileColors?: Array<ColorValue | null>;
+  /** Named zones that can constrain base agents and their spawned children */
+  zones?: ZoneDefinition[];
+  /** Per-tile zone labels, parallel to tiles array. null = unassigned rest area */
+  zoneTiles?: Array<string | null>;
+  /** Zone labels that every base agent and spawned child may enter */
+  allAgentZoneLabels?: string[];
+  /** Base agent id -> allowed zone labels. Unassigned agents may use any zone */
+  agentZoneAssignments?: AgentZoneAssignments;
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
 }

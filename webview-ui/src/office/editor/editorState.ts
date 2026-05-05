@@ -8,6 +8,7 @@ export class EditorState {
   activeTool: EditTool = EditTool.SELECT;
   selectedTileType: TileTypeVal = TileType.FLOOR_1;
   selectedFurnitureType = ''; // asset ID, set when catalog loads
+  selectedZoneLabel: string | null = null;
 
   // Floor color settings (applied to new tiles when painting)
   floorColor: ColorValue = { ...DEFAULT_FLOOR_COLOR };
@@ -110,6 +111,7 @@ export class EditorState {
   reset(): void {
     this.activeTool = EditTool.SELECT;
     this.selectedFurnitureUid = null;
+    this.selectedZoneLabel = null;
     this.ghostCol = -1;
     this.ghostRow = -1;
     this.ghostValid = false;

@@ -269,7 +269,18 @@ export function createDefaultLayout(): OfficeLayout {
   }
 
   // Minimal fallback with no furniture — the default-layout.json provides the real default
-  return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, furniture: [] };
+  return {
+    version: 1,
+    cols: DEFAULT_COLS,
+    rows: DEFAULT_ROWS,
+    tiles,
+    tileColors,
+    furniture: [],
+    zones: [],
+    zoneTiles: new Array(tiles.length).fill(null),
+    allAgentZoneLabels: [],
+    agentZoneAssignments: {},
+  };
 }
 
 /** Serialize layout to JSON string
@@ -307,6 +318,38 @@ function migrateFurnitureTypes(furniture: PlacedFurniture[]): PlacedFurniture[] 
     // newType === null → remove the item (no equivalent)
   }
   return migrated;
+}
+
+function normalizeLayoutZones(layout: OfficeLayout): OfficeLayout {
+  const tileCount = layout.tiles.length;
+  const seenLabels = new Set<string>();
+  const zones = (layout.zones ?? []).flatMap((zone) => {
+    const label = zone.label.trim();
+    if (!label || seenLabels.has(label)) return [];
+    seenLabels.add(label);
+    return [{ ...zone, label }];
+  });
+  const labels = new Set(zones.map((zone) => zone.label));
+  const zoneTiles =
+    layout.zoneTiles && layout.zoneTiles.length === tileCount
+      ? layout.zoneTiles.map((label) => (label && labels.has(label) ? label : null))
+      : new Array<string | null>(tileCount).fill(null);
+  const allAgentZoneLabels = Array.from(new Set(layout.allAgentZoneLabels ?? [])).filter((label) =>
+    labels.has(label),
+  );
+  const allAgentZoneLabelSet = new Set(allAgentZoneLabels);
+
+  const agentZoneAssignments: Record<string, string[]> = {};
+  for (const [agentId, assignedLabels] of Object.entries(layout.agentZoneAssignments ?? {})) {
+    const unique = Array.from(new Set(assignedLabels)).filter(
+      (label) => labels.has(label) && !allAgentZoneLabelSet.has(label),
+    );
+    if (unique.length > 0) {
+      agentZoneAssignments[agentId] = unique;
+    }
+  }
+
+  return { ...layout, zones, zoneTiles, allAgentZoneLabels, agentZoneAssignments };
 }
 
 /** Deserialize layout from JSON string, migrating old tile types if needed
@@ -349,7 +392,7 @@ function migrateLayout(layout: OfficeLayout): OfficeLayout {
   }
 
   if (layout.tileColors && layout.tileColors.length === layout.tiles.length) {
-    return layout; // Already migrated tile colors
+    return normalizeLayoutZones(layout); // Already migrated tile colors
   }
 
   // Check if any tiles use old values (1-4) — these map directly to FLOOR_1-4
@@ -378,5 +421,5 @@ function migrateLayout(layout: OfficeLayout): OfficeLayout {
     }
   }
 
-  return { ...layout, tileColors };
+  return normalizeLayoutZones({ ...layout, tileColors });
 }

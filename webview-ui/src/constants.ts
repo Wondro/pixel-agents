@@ -94,6 +94,19 @@ export const LAYOUT_SAVE_DEBOUNCE_MS = 500;
 export const DEFAULT_FLOOR_COLOR: ColorValue = { h: 35, s: 30, b: 15, c: 0 };
 export const DEFAULT_WALL_COLOR: ColorValue = { h: 240, s: 25, b: 0, c: 0 };
 export const DEFAULT_NEUTRAL_COLOR: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
+export const ZONE_DEFAULT_COLORS = [
+  '#3b82f6',
+  '#22c55e',
+  '#f97316',
+  '#a855f7',
+  '#ec4899',
+  '#14b8a6',
+] as const;
+export const ZONE_OVERLAY_ALPHA = 0.28;
+export const ZONE_OVERLAY_ACTIVE_ALPHA = 0.42;
+export const ZONE_OVERLAY_STROKE_ALPHA = 0.65;
+export const ZONE_LABEL_BG = 'rgba(5, 8, 18, 0.72)';
+export const ZONE_LABEL_COLOR = '#ffffff';
 
 // ── Notification Sound (done: ascending chime) ─────────────
 export const NOTIFICATION_NOTE_1_HZ = 659.25; // E5

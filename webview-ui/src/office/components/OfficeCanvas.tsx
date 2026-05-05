@@ -150,6 +150,9 @@ export function OfficeCanvas({
             showGhostBorder,
             ghostBorderHoverCol: showGhostBorder ? editorState.ghostCol : -999,
             ghostBorderHoverRow: showGhostBorder ? editorState.ghostRow : -999,
+            zones: officeState.getLayout().zones ?? [],
+            zoneTiles: officeState.getLayout().zoneTiles ?? [],
+            activeZoneLabel: editorState.selectedZoneLabel,
           };
 
           // Ghost preview for furniture placement
@@ -373,6 +376,7 @@ export function OfficeCanvas({
             editorState.isDragging &&
             (editorState.activeTool === EditTool.TILE_PAINT ||
               editorState.activeTool === EditTool.WALL_PAINT ||
+              editorState.activeTool === EditTool.ZONE_PAINT ||
               editorState.activeTool === EditTool.ERASE) &&
             !editorState.dragUid
           ) {
@@ -383,6 +387,7 @@ export function OfficeCanvas({
             isEraseDraggingRef.current &&
             (editorState.activeTool === EditTool.TILE_PAINT ||
               editorState.activeTool === EditTool.WALL_PAINT ||
+              editorState.activeTool === EditTool.ZONE_PAINT ||
               editorState.activeTool === EditTool.ERASE)
           ) {
             const layout = officeState.getLayout();
@@ -471,7 +476,15 @@ export function OfficeCanvas({
             const seat = officeState.seats.get(seatId);
             if (seat) {
               const selectedCh = officeState.characters.get(officeState.selectedAgentId);
-              if (!seat.assigned || (selectedCh && selectedCh.seatId === seatId)) {
+              if (
+                selectedCh &&
+                officeState.isTileAllowedForAgent(
+                  officeState.selectedAgentId,
+                  tile.col,
+                  tile.row,
+                ) &&
+                (!seat.assigned || selectedCh.seatId === seatId)
+              ) {
                 cursor = 'pointer';
               }
             }
@@ -523,6 +536,7 @@ export function OfficeCanvas({
           tile &&
           (editorState.activeTool === EditTool.TILE_PAINT ||
             editorState.activeTool === EditTool.WALL_PAINT ||
+            editorState.activeTool === EditTool.ZONE_PAINT ||
             editorState.activeTool === EditTool.ERASE)
         ) {
           const layout = officeState.getLayout();
@@ -705,7 +719,10 @@ export function OfficeCanvas({
                   officeState.selectedAgentId = null;
                   officeState.cameraFollowId = null;
                   return;
-                } else if (!seat.assigned) {
+                } else if (
+                  !seat.assigned &&
+                  officeState.isTileAllowedForAgent(officeState.selectedAgentId, tile.col, tile.row)
+                ) {
                   // Clicked available seat — reassign
                   officeState.reassignSeat(officeState.selectedAgentId, seatId);
                   officeState.selectedAgentId = null;
