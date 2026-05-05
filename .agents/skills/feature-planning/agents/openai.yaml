@@ -1,0 +1,5 @@
+interface:
+  display_name: "Feature Planning"
+  short_description: "Turn a SaaS feature idea into requirements, acceptance criteria, risks, and implementation slices."
+policy:
+  allow_implicit_invocation: true

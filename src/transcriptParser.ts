@@ -1,8 +1,6 @@
 import * as path from 'path';
 import type * as vscode from 'vscode';
 
-const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
-
 import {
   BASH_COMMAND_DISPLAY_MAX_LENGTH,
   TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
@@ -10,6 +8,12 @@ import {
   TOOL_DONE_DELAY_MS,
 } from '../server/src/constants.js';
 import type { HookProvider } from '../server/src/provider.js';
+import { normalizeCodexToolName } from '../server/src/providers/hook/codex/codex.js';
+import {
+  findSpawnedAgentToolId,
+  forgetSpawnedAgent,
+  rememberSpawnedAgent,
+} from './spawnedAgentTracking.js';
 import {
   cancelPermissionTimer,
   cancelWaitingTimer,
@@ -19,7 +23,16 @@ import {
 } from './timerManager.js';
 import type { AgentState } from './types.js';
 
-const PERMISSION_EXEMPT_TOOLS = new Set(['Task', 'Agent', 'AskUserQuestion']);
+const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
+
+const PERMISSION_EXEMPT_TOOLS = new Set([
+  'Task',
+  'Agent',
+  'spawn_agent',
+  'wait_agent',
+  'close_agent',
+  'AskUserQuestion',
+]);
 
 /** Hook provider: supplies formatToolStatus + team.extractTeamMetadataFromRecord.
  *  Registered once at startup via setHookProvider(). Functions below assume it's set. */
@@ -37,8 +50,7 @@ export function formatToolStatus(toolName: string, input: Record<string, unknown
   return defaultFormatToolStatus(toolName, input);
 }
 
-/** Fallback formatter for edge cases (tests, provider not yet registered).
- *  Mirrors Claude's formatting; most code paths use the provider's implementation. */
+/** Fallback formatter for edge cases (tests, provider not yet registered). */
 function defaultFormatToolStatus(toolName: string, input: Record<string, unknown>): string {
   const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
   switch (toolName) {
@@ -102,7 +114,7 @@ export function processTranscriptLine(
     const record = JSON.parse(line);
 
     // -- Agent Teams: extract team metadata via the active provider --
-    // The provider reads its CLI's own field names (Claude: record.teamName + record.agentName).
+    // The provider reads its CLI's own field names.
     // Other CLIs would implement this differently or not at all.
     const teamMeta = hookProvider?.team?.extractTeamMetadataFromRecord(record);
     if (teamMeta?.teamName && teamMeta.teamName !== agent.teamName) {
@@ -147,8 +159,20 @@ export function processTranscriptLine(
       });
     }
 
-    // Resilient content extraction: support both record.message.content and record.content
-    // Claude Code may change the JSONL structure across versions
+    if (
+      processCodexTranscriptRecord(
+        agentId,
+        record,
+        agents,
+        waitingTimers,
+        permissionTimers,
+        webview,
+      )
+    ) {
+      return;
+    }
+
+    // Resilient content extraction: support both record.message.content and record.content.
     const assistantContent = record.message?.content ?? record.content;
 
     if (record.type === 'assistant' && Array.isArray(assistantContent)) {
@@ -379,12 +403,14 @@ export function processTranscriptLine(
         // Re-send background agent tools so webview keeps their sub-agents alive
         for (const toolId of agent.backgroundAgentToolIds) {
           const status = agent.activeToolStatuses.get(toolId);
+          const toolName = agent.activeToolNames.get(toolId);
           if (status) {
             webview?.postMessage({
               type: 'agentToolStart',
               id: agentId,
               toolId,
               status,
+              toolName,
             });
           }
         }
@@ -412,7 +438,7 @@ export function processTranscriptLine(
       }
     } else if (record.type && !agent.seenUnknownRecordTypes.has(record.type)) {
       // Log first occurrence of unrecognized record types to help diagnose issues
-      // where Claude Code changes JSONL format. Known types we intentionally skip:
+      // where the runtime changes JSONL format. Known types we intentionally skip:
       // file-history-snapshot, queue-operation (non-enqueue), etc.
       const knownSkippableTypes = new Set(['file-history-snapshot', 'system', 'queue-operation']);
       if (!knownSkippableTypes.has(record.type)) {
@@ -428,6 +454,425 @@ export function processTranscriptLine(
   } catch {
     // Ignore malformed lines
   }
+}
+
+function getPayload(record: Record<string, unknown>): Record<string, unknown> | null {
+  if (typeof record.payload === 'object' && record.payload !== null) {
+    return record.payload as Record<string, unknown>;
+  }
+  return record;
+}
+
+function parseCodexInput(input: unknown): Record<string, unknown> {
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input) as unknown;
+      if (typeof parsed === 'object' && parsed !== null) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return { input };
+    }
+  }
+  if (typeof input === 'object' && input !== null) {
+    return input as Record<string, unknown>;
+  }
+  return {};
+}
+
+function isCodexRecord(record: Record<string, unknown>, payload: Record<string, unknown>): boolean {
+  return (
+    record.type === 'session_meta' ||
+    record.type === 'turn_context' ||
+    record.type === 'event_msg' ||
+    record.type === 'response_item' ||
+    typeof payload.type === 'string'
+  );
+}
+
+function processCodexTranscriptRecord(
+  agentId: number,
+  record: Record<string, unknown>,
+  agents: Map<number, AgentState>,
+  waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+  webview: vscode.Webview | undefined,
+): boolean {
+  const payload = getPayload(record);
+  if (!payload || !isCodexRecord(record, payload)) return false;
+
+  const agent = agents.get(agentId);
+  if (!agent) return true;
+
+  if (record.type === 'session_meta') {
+    if (typeof payload.id === 'string') {
+      agent.sessionId = payload.id;
+    } else if (typeof record.id === 'string') {
+      agent.sessionId = record.id;
+    }
+    if (typeof payload.cwd === 'string') {
+      agent.cwd = payload.cwd;
+    } else if (typeof record.cwd === 'string') {
+      agent.cwd = record.cwd;
+    }
+    return true;
+  }
+
+  const payloadType = payload.type;
+  if (typeof payloadType !== 'string') return true;
+
+  switch (payloadType) {
+    case 'task_started':
+    case 'user_message':
+      cancelWaitingTimer(agentId, waitingTimers);
+      clearAgentActivity(agent, agentId, permissionTimers, webview);
+      agent.hadToolsInTurn = false;
+      return true;
+
+    case 'message': {
+      const role = payload.role;
+      if (role === 'user') {
+        cancelWaitingTimer(agentId, waitingTimers);
+        clearAgentActivity(agent, agentId, permissionTimers, webview);
+        agent.hadToolsInTurn = false;
+      } else if (role === 'assistant' && !agent.hadToolsInTurn && !agent.hookDelivered) {
+        startWaitingTimer(agentId, TEXT_IDLE_DELAY_MS, agents, waitingTimers, webview);
+      }
+      return true;
+    }
+
+    case 'function_call':
+    case 'custom_tool_call': {
+      const rawName = typeof payload.name === 'string' ? payload.name : '';
+      const callId =
+        typeof payload.call_id === 'string' ? payload.call_id : `${rawName}-${Date.now()}`;
+      const input = parseCodexInput(payload.arguments ?? payload.input);
+      startCodexTool(
+        agentId,
+        agent,
+        rawName,
+        callId,
+        input,
+        agents,
+        waitingTimers,
+        permissionTimers,
+        webview,
+      );
+      return true;
+    }
+
+    case 'function_call_output':
+    case 'custom_tool_call_output': {
+      const callId = typeof payload.call_id === 'string' ? payload.call_id : undefined;
+      if (callId) {
+        const toolName = agent.activeToolNames.get(callId);
+        if (toolName === 'close_agent') {
+          const target = agent.pendingCloseAgentTargets.get(callId);
+          if (target) {
+            removeSpawnedCodexAgent(agentId, agent, [target], webview);
+          }
+          agent.pendingCloseAgentTargets.delete(callId);
+        }
+        finishCodexTool(agentId, agent, callId, webview);
+      }
+      return true;
+    }
+
+    case 'exec_command_end':
+    case 'patch_apply_end':
+    case 'collab_waiting_end': {
+      const callId = typeof payload.call_id === 'string' ? payload.call_id : undefined;
+      if (callId) {
+        finishCodexTool(agentId, agent, callId, webview);
+      }
+      return true;
+    }
+
+    case 'collab_agent_spawn_end':
+      registerSpawnedCodexAgent(agentId, agent, payload, webview);
+      return true;
+
+    case 'collab_close_end': {
+      const callId = typeof payload.call_id === 'string' ? payload.call_id : undefined;
+      removeSpawnedCodexAgent(
+        agentId,
+        agent,
+        [
+          payload.receiver_thread_id,
+          payload.receiver_agent_nickname,
+          payload.receiver_agent_role,
+          callId ? agent.pendingCloseAgentTargets.get(callId) : undefined,
+        ],
+        webview,
+      );
+      if (callId) {
+        agent.pendingCloseAgentTargets.delete(callId);
+        finishCodexTool(agentId, agent, callId, webview);
+      }
+      return true;
+    }
+
+    case 'token_count': {
+      const info = payload.info as
+        | { input_tokens?: number; output_tokens?: number; total?: number }
+        | null
+        | undefined;
+      if (info) {
+        if (typeof info.input_tokens === 'number') agent.inputTokens += info.input_tokens;
+        if (typeof info.output_tokens === 'number') agent.outputTokens += info.output_tokens;
+        webview?.postMessage({
+          type: 'agentTokenUsage',
+          id: agentId,
+          inputTokens: agent.inputTokens,
+          outputTokens: agent.outputTokens,
+        });
+      }
+      return true;
+    }
+
+    case 'task_complete':
+      completeCodexTurn(agentId, agent, waitingTimers, permissionTimers, webview);
+      return true;
+
+    case 'agent_message':
+    case 'reasoning':
+    case 'thread_name_updated':
+    case 'context_compacted':
+      return true;
+
+    default:
+      return true;
+  }
+}
+
+function startCodexTool(
+  agentId: number,
+  agent: AgentState,
+  rawName: string,
+  callId: string,
+  input: Record<string, unknown>,
+  agents: Map<number, AgentState>,
+  waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+  webview: vscode.Webview | undefined,
+): void {
+  const toolName = normalizeCodexToolName(rawName);
+  const status = formatToolStatus(rawName, input);
+
+  cancelWaitingTimer(agentId, waitingTimers);
+  agent.isWaiting = false;
+  agent.hadToolsInTurn = true;
+  agent.activeToolIds.add(callId);
+  agent.activeToolStatuses.set(callId, status);
+  agent.activeToolNames.set(callId, toolName);
+  if (rawName === 'close_agent') {
+    const target = input.target;
+    if (typeof target === 'string' && target.trim()) {
+      agent.pendingCloseAgentTargets.set(callId, target);
+    }
+  }
+
+  webview?.postMessage({ type: 'agentStatus', id: agentId, status: 'active' });
+  webview?.postMessage({
+    type: 'agentToolStart',
+    id: agentId,
+    toolId: callId,
+    status,
+    toolName,
+    permissionActive: agent.permissionSent,
+  });
+
+  if (!PERMISSION_EXEMPT_TOOLS.has(toolName) && !agent.hookDelivered && !agent.leadAgentId) {
+    startPermissionTimer(agentId, agents, permissionTimers, PERMISSION_EXEMPT_TOOLS, webview);
+  }
+}
+
+function finishCodexTool(
+  agentId: number,
+  agent: AgentState,
+  callId: string,
+  webview: vscode.Webview | undefined,
+): void {
+  if (!agent.activeToolIds.has(callId)) return;
+
+  if (agent.backgroundAgentToolIds.has(callId)) {
+    setTimeout(() => {
+      webview?.postMessage({
+        type: 'agentToolDone',
+        id: agentId,
+        toolId: callId,
+      });
+    }, TOOL_DONE_DELAY_MS);
+    return;
+  }
+
+  const completedToolName = agent.activeToolNames.get(callId);
+  if (completedToolName === 'Task' || completedToolName === 'Agent') {
+    agent.activeSubagentToolIds.delete(callId);
+    agent.activeSubagentToolNames.delete(callId);
+    webview?.postMessage({
+      type: 'subagentClear',
+      id: agentId,
+      parentToolId: callId,
+    });
+  }
+
+  agent.activeToolIds.delete(callId);
+  agent.activeToolStatuses.delete(callId);
+  agent.activeToolNames.delete(callId);
+
+  setTimeout(() => {
+    webview?.postMessage({
+      type: 'agentToolDone',
+      id: agentId,
+      toolId: callId,
+    });
+  }, TOOL_DONE_DELAY_MS);
+
+  if (agent.activeToolIds.size === 0) {
+    agent.hadToolsInTurn = false;
+  }
+}
+
+function registerSpawnedCodexAgent(
+  agentId: number,
+  agent: AgentState,
+  payload: Record<string, unknown>,
+  webview: vscode.Webview | undefined,
+): void {
+  const parentToolId = typeof payload.call_id === 'string' ? payload.call_id : undefined;
+  if (!parentToolId) return;
+
+  const childThreadId =
+    typeof payload.new_thread_id === 'string' ? payload.new_thread_id.trim() : '';
+  if (!childThreadId) return;
+
+  const label =
+    typeof payload.new_agent_nickname === 'string' && payload.new_agent_nickname.trim()
+      ? payload.new_agent_nickname
+      : typeof payload.new_agent_role === 'string'
+        ? payload.new_agent_role
+        : 'Agent';
+  const status = `Subtask: ${label}`;
+
+  if (!agent.activeToolIds.has(parentToolId)) {
+    agent.activeToolIds.add(parentToolId);
+    agent.activeToolStatuses.set(parentToolId, status);
+    agent.activeToolNames.set(parentToolId, 'Agent');
+    webview?.postMessage({
+      type: 'agentToolStart',
+      id: agentId,
+      toolId: parentToolId,
+      status,
+      toolName: 'Agent',
+      permissionActive: agent.permissionSent,
+    });
+  } else {
+    agent.activeToolStatuses.set(parentToolId, status);
+  }
+
+  agent.backgroundAgentToolIds.add(parentToolId);
+  rememberSpawnedAgent(agent, parentToolId, [
+    childThreadId,
+    payload.new_agent_nickname,
+    payload.new_agent_role,
+  ]);
+
+  setTimeout(() => {
+    webview?.postMessage({
+      type: 'agentToolDone',
+      id: agentId,
+      toolId: parentToolId,
+    });
+  }, TOOL_DONE_DELAY_MS);
+}
+
+function removeSpawnedCodexAgent(
+  agentId: number,
+  agent: AgentState,
+  identifiers: unknown[],
+  webview: vscode.Webview | undefined,
+): void {
+  const parentToolId = findSpawnedAgentToolId(agent, identifiers);
+  if (!parentToolId) return;
+
+  forgetSpawnedAgent(agent, parentToolId);
+  agent.backgroundAgentToolIds.delete(parentToolId);
+  agent.activeToolIds.delete(parentToolId);
+  agent.activeToolStatuses.delete(parentToolId);
+  agent.activeToolNames.delete(parentToolId);
+  agent.activeSubagentToolIds.delete(parentToolId);
+  agent.activeSubagentToolNames.delete(parentToolId);
+
+  webview?.postMessage({
+    type: 'subagentClear',
+    id: agentId,
+    parentToolId,
+  });
+  webview?.postMessage({
+    type: 'agentToolDone',
+    id: agentId,
+    toolId: parentToolId,
+  });
+}
+
+function completeCodexTurn(
+  agentId: number,
+  agent: AgentState,
+  waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+  webview: vscode.Webview | undefined,
+): void {
+  cancelWaitingTimer(agentId, waitingTimers);
+  cancelPermissionTimer(agentId, permissionTimers);
+
+  if (agent.backgroundAgentToolIds.size > 0) {
+    for (const toolId of [...agent.activeToolIds]) {
+      if (agent.backgroundAgentToolIds.has(toolId)) continue;
+      agent.activeToolIds.delete(toolId);
+      agent.activeToolStatuses.delete(toolId);
+      agent.activeToolNames.delete(toolId);
+      agent.activeSubagentToolIds.delete(toolId);
+      agent.activeSubagentToolNames.delete(toolId);
+    }
+    for (const callId of [...agent.pendingCloseAgentTargets.keys()]) {
+      if (!agent.activeToolIds.has(callId)) {
+        agent.pendingCloseAgentTargets.delete(callId);
+      }
+    }
+    webview?.postMessage({ type: 'agentToolsClear', id: agentId });
+    for (const toolId of agent.backgroundAgentToolIds) {
+      const status = agent.activeToolStatuses.get(toolId);
+      const toolName = agent.activeToolNames.get(toolId);
+      if (status) {
+        webview?.postMessage({
+          type: 'agentToolStart',
+          id: agentId,
+          toolId,
+          status,
+          toolName,
+        });
+      }
+    }
+  } else {
+    agent.activeToolIds.clear();
+    agent.activeToolStatuses.clear();
+    agent.activeToolNames.clear();
+    agent.activeSubagentToolIds.clear();
+    agent.activeSubagentToolNames.clear();
+    agent.spawnedAgentToolIds.clear();
+    agent.pendingCloseAgentTargets.clear();
+    webview?.postMessage({ type: 'agentToolsClear', id: agentId });
+  }
+
+  agent.isWaiting = true;
+  agent.permissionSent = false;
+  agent.hadToolsInTurn = false;
+  webview?.postMessage({
+    type: 'agentStatus',
+    id: agentId,
+    status: 'waiting',
+  });
 }
 
 function processProgressRecord(

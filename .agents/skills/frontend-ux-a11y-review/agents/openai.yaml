@@ -1,0 +1,5 @@
+interface:
+  display_name: "Frontend Ux A11Y Review"
+  short_description: "Review UI flows for accessibility, responsive behavior, and paid SaaS user experience."
+policy:
+  allow_implicit_invocation: true

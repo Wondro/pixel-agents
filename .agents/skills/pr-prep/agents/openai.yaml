@@ -1,0 +1,5 @@
+interface:
+  display_name: "Pr Prep"
+  short_description: "Prepare a PR summary with verification, risk, security/auth/billing impact, and docs updates."
+policy:
+  allow_implicit_invocation: true

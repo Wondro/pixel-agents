@@ -20,7 +20,7 @@ async function postHook(
   port: number,
   token: string,
   body: string,
-  providerId = 'claude',
+  providerId = 'codex',
 ): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}/api/hooks/${providerId}`, {
     method: 'POST',
@@ -75,7 +75,7 @@ describe('PixelAgentsServer', () => {
   // 3. Hook endpoint requires auth
   it('hook endpoint returns 401 without auth', async () => {
     const config = await server.start();
-    const res = await fetch(`http://127.0.0.1:${config.port}/api/hooks/claude`, {
+    const res = await fetch(`http://127.0.0.1:${config.port}/api/hooks/codex`, {
       method: 'POST',
       body: '{}',
     });
@@ -108,7 +108,7 @@ describe('PixelAgentsServer', () => {
     );
 
     expect(received).toHaveLength(1);
-    expect(received[0].providerId).toBe('claude');
+    expect(received[0].providerId).toBe('codex');
     expect(received[0].event.session_id).toBe('abc');
     expect(received[0].event.hook_event_name).toBe('Stop');
   });

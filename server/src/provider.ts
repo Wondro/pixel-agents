@@ -1,8 +1,8 @@
 /**
  * Provider abstraction for AI agent tools.
  *
- * Only HookProvider ships today (Claude Code). Transcript-polling and push-based
- * provider types will be added when a real second provider (Codex, Goose,
+ * HookProvider ships for Codex today. Transcript-polling and push-based
+ * provider types can be added when another provider (Goose,
  * Discord, etc.) actually lands, derived from that provider's needs rather than
  * speculation.
  */
@@ -38,7 +38,7 @@ export interface HookProvider {
   readonly displayName: string;
 
   /** Normalize a raw hook event payload into an AgentEvent.
-   *  Each CLI sends different JSON (Claude: snake_case, Copilot: camelCase, etc.)
+   *  Each CLI sends different JSON (Codex, Copilot, etc.)
    *  The provider translates to the common AgentEvent format.
    *  Return null for events we should ignore. */
   normalizeHookEvent(raw: Record<string, unknown>): {
@@ -72,13 +72,14 @@ export interface HookProvider {
   buildLaunchCommand?(
     sessionId: string,
     cwd: string,
+    bypassPermissions?: boolean,
   ): {
     command: string;
     args: string[];
     env?: Record<string, string>;
   };
 
-  // ── Optional team/subagent extension (Agent Teams on Claude; empty for single-agent CLIs) ──
+  // ── Optional team/subagent extension ──
 
   /** Optional reference to a TeamProvider. When set, the hook handler registers team-aware
    *  branches (subagent routing, teammate discovery, permission forwarding, etc.). */

@@ -3,6 +3,7 @@
 import * as path from 'path';
 import type * as vscode from 'vscode';
 
+import { findSpawnedAgentOwner } from '../../src/spawnedAgentTracking.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from '../../src/timerManager.js';
 import type { AgentState } from '../../src/types.js';
 import { HOOK_EVENT_BUFFER_MS, SESSION_END_GRACE_MS } from './constants.js';
@@ -15,7 +16,7 @@ const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
 export interface HookEvent {
   /** Hook event name (e.g., 'Stop', 'PermissionRequest', 'Notification') */
   hook_event_name: string;
-  /** Claude Code session ID, maps to JSONL filename */
+  /** Runtime session ID, usually mapped to a JSONL transcript */
   session_id: string;
   /** Additional provider-specific fields (notification_type, tool_name, etc.) */
   [key: string]: unknown;
@@ -102,7 +103,7 @@ export class HookEventHandler {
     return this.provider.subagentToolNames;
   }
 
-  /** Check if a session is tracked (in workspace project dir, or Watch All Sessions ON). */
+  /** Check if a session is tracked (in workspace project dir, or Monitor Codex Chat ON). */
   private isTrackedSession(transcriptPath?: string, cwd?: string): boolean {
     if (this.watchAllSessionsRef?.current) return true;
     const projectDir = transcriptPath ? path.dirname(transcriptPath) : cwd;
@@ -132,12 +133,12 @@ export class HookEventHandler {
   /**
    * Process an incoming hook event. Looks up the agent by session_id,
    * falls back to auto-discovery scan, or buffers if agent not yet registered.
-   * @param providerId - Provider that sent the event ('claude', 'codex', etc.)
+   * @param providerId - Provider that sent the event.
    * @param event - The hook event payload from the CLI tool
    */
   handleEvent(_providerId: string, event: HookEvent): void {
     // ── Provider normalization boundary ───────────────────────────────────────
-    // All raw Claude-specific fields (tool_name, tool_input, agent_type, notification_type,
+    // Runtime-specific fields (tool_name, tool_input, agent_type, notification_type,
     // reason, source) are extracted by provider.normalizeHookEvent. Downstream dispatch
     // uses the normalized AgentEvent.kind. Raw `event.*` reads are still allowed in a few
     // places for provider-specific metadata that AgentEvent doesn't capture (transcript_path,
@@ -188,6 +189,16 @@ export class HookEventHandler {
           return;
         }
       }
+
+      const spawnedOwner = findSpawnedAgentOwner(this.agents, [event.session_id]);
+      if (spawnedOwner) {
+        if (debug)
+          console.log(
+            `[Pixel Agents] Hook: SessionStart ignored spawned child session ${sid}... owned by Agent ${spawnedOwner.agentId}`,
+          );
+        return;
+      }
+
       // /clear or /resume: reassign existing agent to new session
       if (normEvent.source === 'clear' || normEvent.source === 'resume') {
         const projectDir = transcriptPath ? path.dirname(transcriptPath) : cwd;
@@ -216,7 +227,7 @@ export class HookEventHandler {
       }
       // Unknown session -- store as pending, create only when a confirmation event
       // arrives (Stop, Notification, PermissionRequest). This filters transient sessions
-      // from Claude Code Extension which fire SessionStart + SessionEnd without any activity.
+      // that fire SessionStart without any meaningful activity.
       if (transcriptPath || cwd) {
         // For --resume, clear dismissals so the file can be re-adopted
         if (normEvent.source === 'resume' && transcriptPath) {
@@ -255,6 +266,14 @@ export class HookEventHandler {
     if (this.pendingExternalSessions.has(event.session_id)) {
       const pending = this.pendingExternalSessions.get(event.session_id)!;
       this.pendingExternalSessions.delete(event.session_id);
+      const spawnedOwner = findSpawnedAgentOwner(this.agents, [event.session_id]);
+      if (spawnedOwner) {
+        if (debug)
+          console.log(
+            `[Pixel Agents] Hook: ${eventName} ignored spawned child session ${event.session_id.slice(0, 8)}... owned by Agent ${spawnedOwner.agentId}`,
+          );
+        return;
+      }
       if (debug)
         console.log(
           `[Pixel Agents] Hook: ${eventName} confirmed external session ${event.session_id.slice(0, 8)}..., creating agent`,
@@ -266,6 +285,15 @@ export class HookEventHandler {
       );
       // Re-process this event now that the agent exists
       this.handleEvent(_providerId, event);
+      return;
+    }
+
+    const spawnedOwner = findSpawnedAgentOwner(this.agents, [event.session_id]);
+    if (spawnedOwner) {
+      if (debug)
+        console.log(
+          `[Pixel Agents] Hook: ${eventName} ignored spawned child session ${event.session_id.slice(0, 8)}... owned by Agent ${spawnedOwner.agentId}`,
+        );
       return;
     }
 
@@ -301,7 +329,10 @@ export class HookEventHandler {
     }
 
     const agent = this.agents.get(agentId);
-    if (!agent) return;
+    if (!agent) {
+      this.sessionToAgentId.delete(event.session_id);
+      return;
+    }
 
     agent.hookDelivered = true;
     if (debug)
@@ -409,7 +440,7 @@ export class HookEventHandler {
     const toolName = normEvent.toolName;
     const toolInput = (normEvent.input as Record<string, unknown> | undefined) ?? {};
     const status = this.provider.formatToolStatus(toolName, toolInput);
-    const hookToolId = `hook-${Date.now()}`;
+    const hookToolId = normEvent.toolId || `hook-${Date.now()}`;
 
     // Track for PostToolUse/SubagentStart correlation (always, even if suppressed below).
     // currentHookIsTeammateSpawn is the authoritative teammate-vs-subagent discriminator.
@@ -644,7 +675,7 @@ export class HookEventHandler {
     }
   }
 
-  /** Handle Stop: Claude finished responding, mark agent as waiting. */
+  /** Handle Stop: the agent finished responding, mark it as waiting. */
   private handleStop(
     agent: AgentState,
     agentId: number,
@@ -760,12 +791,14 @@ export class HookEventHandler {
     // Re-send background agent tools to restore them after the clear
     for (const toolId of agent.backgroundAgentToolIds) {
       const status = agent.activeToolStatuses.get(toolId);
+      const toolName = agent.activeToolNames.get(toolId);
       if (status) {
         webview?.postMessage({
           type: 'agentToolStart',
           id: agentId,
           toolId,
           status,
+          toolName,
         });
       }
     }

@@ -5,59 +5,103 @@ import * as vscode from 'vscode';
 
 import { JSONL_POLL_INTERVAL_MS } from '../server/src/constants.js';
 import {
+  codexProvider,
+  getCodexSessionIdFromFile,
+  getCodexSessionsRoot,
+  isCodexSessionRoot,
+  listCodexSessionFiles,
+  readCodexSessionMetadata,
+} from '../server/src/providers/hook/codex/codex.js';
+import { findBundledCodexCli } from '../server/src/providers/hook/codex/codexCliResolver.js';
+import {
   TERMINAL_NAME_PREFIX,
   WORKSPACE_KEY_AGENT_SEATS,
   WORKSPACE_KEY_AGENTS,
 } from './constants.js';
-import {
-  ensureProjectScan,
-  readNewLines,
-  reassignAgentToFile,
-  startFileWatching,
-} from './fileWatcher.js';
+import { ensureProjectScan, reassignAgentToFile, startFileWatching } from './fileWatcher.js';
 import { migrateAndLoadLayout } from './layoutPersistence.js';
+import { restoreSpawnedAgentsFromCodexTranscript } from './spawnedAgentTracking.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
 import type { AgentState, PersistedAgent } from './types.js';
 
 export function getProjectDirPath(cwd?: string): string {
-  // Fall back to home directory when no workspace folder is open.
-  // This is the common case on Linux/macOS when VS Code is launched without a folder
-  // (e.g. `code` with no arguments). Claude Code writes JSONL files to
-  // ~/.claude/projects/<hash>/ where <hash> is derived from the process cwd, so we
-  // must use the same directory as the terminal's working directory.
   const workspacePath = cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir();
-  const dirName = workspacePath.replace(/[^a-zA-Z0-9-]/g, '-');
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', dirName);
-  console.log(`[Pixel Agents] Terminal: Project dir: ${workspacePath} → ${dirName}`);
+  const sessionsRoot = getCodexSessionsRoot();
+  console.log(`[Pixel Agents] Terminal: Codex sessions root for ${workspacePath}: ${sessionsRoot}`);
 
-  // Verify the directory exists; if not, try fuzzy matching against existing dirs
-  if (!fs.existsSync(projectDir)) {
-    const projectsRoot = path.join(os.homedir(), '.claude', 'projects');
-    try {
-      if (fs.existsSync(projectsRoot)) {
-        const candidates = fs.readdirSync(projectsRoot);
-        // Try case-insensitive match (handles Windows drive letter casing)
-        const lowerDirName = dirName.toLowerCase();
-        const match = candidates.find((c) => c.toLowerCase() === lowerDirName);
-        if (match && match !== dirName) {
-          const matchedDir = path.join(projectsRoot, match);
-          console.log(
-            `[Pixel Agents] Project dir not found, using case-insensitive match: ${dirName} → ${match}`,
-          );
-          return matchedDir;
-        }
-        if (!match) {
-          console.warn(
-            `[Pixel Agents] Project dir does not exist: ${projectDir}. ` +
-              `Available dirs (${candidates.length}): ${candidates.slice(0, 5).join(', ')}${candidates.length > 5 ? '...' : ''}`,
-          );
-        }
-      }
-    } catch {
-      // Ignore scan errors
-    }
+  return sessionsRoot;
+}
+
+function listSessionFiles(projectDir: string): string[] {
+  if (isCodexSessionRoot(projectDir)) {
+    return listCodexSessionFiles(projectDir);
   }
-  return projectDir;
+  try {
+    return fs
+      .readdirSync(projectDir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => path.join(projectDir, f));
+  } catch {
+    return [];
+  }
+}
+
+function samePath(a: string, b: string): boolean {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+}
+
+function shellJoin(command: string, args: string[]): string {
+  return [command, ...args]
+    .map((part) => (/^[a-zA-Z0-9_./:=+-]+$/.test(part) ? part : JSON.stringify(part)))
+    .join(' ');
+}
+
+function isCodexVsCodeExtension(extension: vscode.Extension<unknown>): boolean {
+  const id = extension.id.toLowerCase();
+  return id.startsWith('openai.chatgpt') || id.startsWith('openai.codex');
+}
+
+function getCodexVsCodeExtensionPaths(): string[] {
+  return vscode.extensions.all
+    .filter(isCodexVsCodeExtension)
+    .map((extension) => extension.extensionPath);
+}
+
+function resolveCodexLaunchCommand(command: string): string {
+  const normalizedCommand = command.toLowerCase();
+  if (normalizedCommand !== 'codex' && normalizedCommand !== 'codex.exe') return command;
+
+  return findBundledCodexCli(getCodexVsCodeExtensionPaths()) ?? command;
+}
+
+function findNewCodexSessionFile(
+  projectDir: string,
+  cwd: string,
+  createdAt: number,
+  agents: Map<number, AgentState>,
+): string | undefined {
+  const trackedFiles = new Set([...agents.values()].map((a) => path.resolve(a.jsonlFile)));
+  const candidates = listSessionFiles(projectDir)
+    .map((file) => {
+      try {
+        const stat = fs.statSync(file);
+        const meta = readCodexSessionMetadata(file);
+        return { file, mtime: stat.mtimeMs, meta };
+      } catch {
+        return null;
+      }
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => {
+      if (!candidate) return false;
+      if (trackedFiles.has(path.resolve(candidate.file))) return false;
+      const startedAt = candidate.meta.timestamp ?? candidate.mtime;
+      if (startedAt < createdAt - 2000 && candidate.mtime < createdAt - 2000) return false;
+      if (candidate.meta.cwd && !samePath(candidate.meta.cwd, cwd)) return false;
+      return true;
+    })
+    .sort((a, b) => (b.meta.timestamp ?? b.mtime) - (a.meta.timestamp ?? a.mtime));
+
+  return candidates[0]?.file;
 }
 
 export async function launchNewTerminal(
@@ -78,23 +122,34 @@ export async function launchNewTerminal(
   bypassPermissions?: boolean,
 ): Promise<void> {
   const folders = vscode.workspace.workspaceFolders;
-  // Use home directory as fallback cwd when no workspace is open (common on Linux/macOS).
-  // This ensures the terminal starts in a predictable location that matches the project
-  // dir hash Claude Code will use for JSONL transcript files.
+  // Use home directory as fallback cwd when no workspace is open.
   const cwd = folderPath || folders?.[0]?.uri.fsPath || os.homedir();
   const isMultiRoot = !!(folders && folders.length > 1);
   const idx = nextTerminalIndexRef.current++;
+  const sessionId = crypto.randomUUID();
+  const launch = codexProvider.buildLaunchCommand?.(sessionId, cwd, bypassPermissions) ?? {
+    command: 'codex',
+    args: [],
+  };
+  const launchCommand = resolveCodexLaunchCommand(launch.command);
+  const shouldLaunchDirectly = path.isAbsolute(launchCommand);
   const terminal = vscode.window.createTerminal({
     name: `${TERMINAL_NAME_PREFIX} #${idx}`,
     cwd,
+    ...(shouldLaunchDirectly
+      ? {
+          shellPath: launchCommand,
+          shellArgs: launch.args,
+        }
+      : {}),
   });
   terminal.show();
 
-  const sessionId = crypto.randomUUID();
-  const claudeCmd = bypassPermissions
-    ? `claude --session-id ${sessionId} --dangerously-skip-permissions`
-    : `claude --session-id ${sessionId}`;
-  terminal.sendText(claudeCmd);
+  if (shouldLaunchDirectly) {
+    console.log(`[Pixel Agents] Terminal: using Codex CLI at ${launchCommand}`);
+  } else {
+    terminal.sendText(shellJoin(launchCommand, launch.args));
+  }
 
   const projectDir = getProjectDirPath(cwd);
 
@@ -120,6 +175,8 @@ export async function launchNewTerminal(
     activeSubagentToolIds: new Map(),
     activeSubagentToolNames: new Map(),
     backgroundAgentToolIds: new Set(),
+    spawnedAgentToolIds: new Map(),
+    pendingCloseAgentTargets: new Map(),
     isWaiting: false,
     permissionSent: false,
     hadToolsInTurn: false,
@@ -130,6 +187,8 @@ export async function launchNewTerminal(
     hookDelivered: false,
     inputTokens: 0,
     outputTokens: 0,
+    providerId: codexProvider.id,
+    cwd,
   };
 
   agents.set(id, agent);
@@ -160,30 +219,34 @@ export async function launchNewTerminal(
   const pollTimer = setInterval(() => {
     pollCount++;
     try {
-      if (fs.existsSync(agent.jsonlFile)) {
+      const discoveredFile = fs.existsSync(agent.jsonlFile)
+        ? agent.jsonlFile
+        : findNewCodexSessionFile(projectDir, cwd, createdAt, agents);
+
+      if (discoveredFile) {
         console.log(
-          `[Pixel Agents] Terminal: Agent ${id} - found JSONL file ${path.basename(agent.jsonlFile)} (after ${pollCount}s)`,
+          `[Pixel Agents] Terminal: Agent ${id} - found JSONL file ${path.basename(discoveredFile)} (after ${pollCount}s)`,
         );
         clearInterval(pollTimer);
         jsonlPollTimers.delete(id);
-        startFileWatching(
+        reassignAgentToFile(
           id,
-          agent.jsonlFile,
+          discoveredFile,
           agents,
           fileWatchers,
           pollingTimers,
           waitingTimers,
           permissionTimers,
           webview,
+          persistAgents,
         );
-        readNewLines(id, agents, waitingTimers, permissionTimers, webview);
       } else if (pollCount === 10) {
         // After 10s of polling, warn with path details to help diagnose path encoding mismatches
         const dirExists = fs.existsSync(projectDir);
         let dirContents = '';
         if (dirExists) {
           try {
-            const files = fs.readdirSync(projectDir).filter((f) => f.endsWith('.jsonl'));
+            const files = listSessionFiles(projectDir).map((file) => path.basename(file));
             dirContents =
               files.length > 0
                 ? `Dir has ${files.length} JSONL file(s): ${files.slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''}`
@@ -203,13 +266,8 @@ export async function launchNewTerminal(
         // Check every tick for a file modified after the agent was created.
         try {
           const trackedFiles = new Set([...agents.values()].map((a) => path.resolve(a.jsonlFile)));
-          const candidates = fs
-            .readdirSync(projectDir)
-            .filter((f) => f.endsWith('.jsonl'))
-            .map((f) => {
-              const full = path.join(projectDir, f);
-              return { file: full, mtime: fs.statSync(full).mtimeMs };
-            })
+          const candidates = listSessionFiles(projectDir)
+            .map((full) => ({ file: full, mtime: fs.statSync(full).mtimeMs }))
             .filter((c) => !trackedFiles.has(path.resolve(c.file)) && c.mtime > createdAt)
             .sort((a, b) => b.mtime - a.mtime); // newest first
 
@@ -299,6 +357,7 @@ export function persistAgents(
       isTeamLead: agent.isTeamLead,
       leadAgentId: agent.leadAgentId,
       teamUsesTmux: agent.teamUsesTmux,
+      cwd: agent.cwd,
     });
   }
   context.workspaceState.update(WORKSPACE_KEY_AGENTS, persisted);
@@ -354,7 +413,7 @@ export function restoreAgents(
 
     const agent: AgentState = {
       id: p.id,
-      sessionId: p.sessionId || path.basename(p.jsonlFile, '.jsonl'),
+      sessionId: p.sessionId || getCodexSessionIdFromFile(p.jsonlFile),
       terminalRef: terminal,
       isExternal,
       projectDir: p.projectDir,
@@ -367,6 +426,8 @@ export function restoreAgents(
       activeSubagentToolIds: new Map(),
       activeSubagentToolNames: new Map(),
       backgroundAgentToolIds: new Set(),
+      spawnedAgentToolIds: new Map(),
+      pendingCloseAgentTargets: new Map(),
       isWaiting: false,
       permissionSent: false,
       hadToolsInTurn: false,
@@ -382,6 +443,8 @@ export function restoreAgents(
       isTeamLead: p.isTeamLead,
       leadAgentId: p.leadAgentId,
       teamUsesTmux: p.teamUsesTmux,
+      providerId: codexProvider.id,
+      cwd: p.cwd,
     };
 
     agents.set(p.id, agent);
@@ -397,7 +460,7 @@ export function restoreAgents(
     }
 
     if (p.id > maxId) maxId = p.id;
-    // Extract terminal index from name like "Claude Code #3"
+    // Extract terminal index from name like "Codex #3"
     const match = p.terminalName.match(/#(\d+)$/);
     if (match) {
       const idx = parseInt(match[1], 10);
@@ -411,6 +474,7 @@ export function restoreAgents(
       if (fs.existsSync(p.jsonlFile)) {
         const stat = fs.statSync(p.jsonlFile);
         agent.fileOffset = stat.size;
+        restoreSpawnedAgentsFromCodexTranscript(agent, p.jsonlFile);
         startFileWatching(
           p.id,
           p.jsonlFile,
@@ -455,7 +519,7 @@ export function restoreAgents(
 
   // After a short delay, remove restored terminal agents that never received data.
   // These are dead terminals restored by VS Code (e.g., after /clear or restart)
-  // where Claude is no longer running.
+  // where the runtime is no longer running.
   const restoredTerminalIds = [...agents.entries()]
     .filter(([, a]) => !a.isExternal && a.terminalRef)
     .map(([id]) => id);

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Threat Modeling"
+  short_description: "Build or update a threat model for a SaaS feature, data flow, or integration."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Auth Billing Security"
+  short_description: "Review paid SaaS authentication, sessions, subscriptions, entitlements, and webhooks."
+policy:
+  allow_implicit_invocation: true

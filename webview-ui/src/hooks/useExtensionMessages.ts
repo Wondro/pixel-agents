@@ -455,8 +455,9 @@ export function useExtensionMessages(
         const folders = msg.folders as WorkspaceFolder[];
         setWorkspaceFolders(folders);
       } else if (msg.type === 'settingsLoaded') {
-        const soundOn = msg.soundEnabled as boolean;
-        setSoundEnabled(soundOn);
+        if (typeof msg.soundEnabled === 'boolean') {
+          setSoundEnabled(msg.soundEnabled as boolean);
+        }
         if (typeof msg.watchAllSessions === 'boolean') {
           setWatchAllSessions(msg.watchAllSessions as boolean);
         }

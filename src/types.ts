@@ -16,7 +16,9 @@ export interface AgentState {
   activeToolNames: Map<string, string>;
   activeSubagentToolIds: Map<string, Set<string>>; // parentToolId → active sub-tool IDs
   activeSubagentToolNames: Map<string, Map<string, string>>; // parentToolId → (subToolId → toolName)
-  backgroundAgentToolIds: Set<string>; // tool IDs for run_in_background Agent calls (stay alive until queue-operation)
+  backgroundAgentToolIds: Set<string>; // tool IDs for background spawned agents
+  spawnedAgentToolIds: Map<string, string>; // spawned-agent identifiers -> parent spawn tool ID
+  pendingCloseAgentTargets: Map<string, string>; // close_agent call ID -> spawned-agent target
   isWaiting: boolean;
   permissionSent: boolean;
   hadToolsInTurn: boolean;
@@ -32,8 +34,10 @@ export interface AgentState {
   hookDelivered: boolean;
   /** True when agent has no transcript file (provider doesn't use JSONL). All state from hooks. */
   hooksOnly?: boolean;
-  /** Provider that created this agent (defaults to 'claude') */
+  /** Provider that created this agent. */
   providerId?: string;
+  /** Working directory where the runtime was launched. */
+  cwd?: string;
   /** Set when SessionEnd(reason=clear) fires; cleared when SessionStart(source=clear) reassigns */
   pendingClear?: boolean;
   /** Hook-generated tool ID for PreToolUse/PostToolUse correlation */
@@ -70,6 +74,8 @@ export interface PersistedAgent {
   projectDir: string;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /** Working directory where the runtime was launched. */
+  cwd?: string;
 
   // -- Agent Teams --
   teamName?: string;

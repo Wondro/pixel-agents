@@ -1,0 +1,5 @@
+interface:
+  display_name: "Database Migration Review"
+  short_description: "Review database schema and migrations for safety, tenancy, indexes, and rollback."
+policy:
+  allow_implicit_invocation: true

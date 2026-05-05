@@ -1,0 +1,5 @@
+interface:
+  display_name: "Implementation Plan"
+  short_description: "Create and execute a small, testable implementation plan for a feature or fix."
+policy:
+  allow_implicit_invocation: true

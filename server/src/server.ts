@@ -169,7 +169,7 @@ export class PixelAgentsServer {
       return;
     }
 
-    // Extract and validate provider ID from URL: /api/hooks/claude -> "claude"
+    // Extract and validate provider ID from URL: /api/hooks/codex -> "codex"
     const providerId = url.slice(HOOK_API_PREFIX.length + 1);
     if (!providerId || !/^[a-z0-9-]+$/.test(providerId)) {
       res.writeHead(400);

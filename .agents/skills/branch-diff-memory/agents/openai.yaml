@@ -1,0 +1,5 @@
+interface:
+  display_name: "Branch Diff Memory"
+  short_description: "Create or update branch-specific memory and consolidate merged branch memory into main."
+policy:
+  allow_implicit_invocation: true

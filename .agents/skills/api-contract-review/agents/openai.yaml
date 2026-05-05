@@ -1,0 +1,5 @@
+interface:
+  display_name: "Api Contract Review"
+  short_description: "Review API contracts between frontend/backend and third-party services."
+policy:
+  allow_implicit_invocation: true

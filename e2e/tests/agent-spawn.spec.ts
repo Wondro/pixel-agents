@@ -1,10 +1,10 @@
 /**
- * E2E: Clicking "+ Agent" in the Pixel Agents webview spawns a mock Claude terminal.
+ * E2E: Clicking "+ Agent" in the Pixel Agents webview spawns a mock Codex terminal.
  *
  * Assertions:
- *   1. The mock `claude` binary was invoked (invocations.log exists and is non-empty).
+ *   1. The mock `codex` binary was invoked (invocations.log exists and is non-empty).
  *   2. The expected JSONL session file was created in the isolated HOME.
- *   3. A VS Code terminal named "Claude Code #1" appears in the workbench.
+ *   3. A VS Code terminal named "Codex #1" appears in the workbench.
  *
  * NOTE FOR NEW TESTS: As more specs are added, refactor session setup into a
  * Playwright fixture using test.extend<{ session: VSCodeSession }>() so that
@@ -18,7 +18,7 @@ import path from 'path';
 import { launchVSCode, waitForWorkbench } from '../helpers/launch';
 import { clickAddAgent, getPixelAgentsFrame, openPixelAgentsPanel } from '../helpers/webview';
 
-test('clicking + Agent spawns mock claude and creates a JSONL session file', async ({}, testInfo) => {
+test('clicking + Agent spawns mock codex and creates a JSONL session file', async ({}, testInfo) => {
   const session = await launchVSCode(testInfo.title);
   const { window, tmpHome, mockLogFile } = session;
   const runVideo = window.video();
@@ -36,8 +36,8 @@ test('clicking + Agent spawns mock claude and creates a JSONL session file', asy
     const frame = await getPixelAgentsFrame(window);
     await clickAddAgent(frame);
 
-    // 4. Assert: mock claude was invoked
-    //    The mock script writes to $HOME/.claude-mock/invocations.log
+    // 4. Assert: mock codex was invoked
+    //    The mock script writes to $HOME/.codex-mock/invocations.log
     await expect
       .poll(
         () => {
@@ -57,32 +57,36 @@ test('clicking + Agent spawns mock claude and creates a JSONL session file', asy
       .toBe(true);
 
     const invocationLog = fs.readFileSync(mockLogFile, 'utf8');
-    expect(invocationLog).toContain('session-id=');
-    await testInfo.attach('mock-claude-invocations', {
+    expect(invocationLog).toContain('codex');
+    await testInfo.attach('mock-codex-invocations', {
       body: invocationLog,
       contentType: 'text/plain',
     });
 
     // 5. Assert: JSONL session file was created.
-    //    Scan all subdirectories under .claude/projects/ rather than hard-coding a
+    //    Scan all subdirectories under .codex/sessions/ rather than hard-coding a
     //    specific hash. On Windows, os.tmpdir() may return an 8.3 short path while
     //    the VS Code terminal sees the long path, making the hashes differ even after
     //    normalisation attempts.
-    const projectsDir = path.join(tmpHome, '.claude', 'projects');
+    const projectsDir = path.join(tmpHome, '.codex', 'sessions');
 
     const findJsonlFiles = (): string[] => {
-      try {
-        if (!fs.existsSync(projectsDir)) return [];
-        return fs.readdirSync(projectsDir).flatMap((entry) => {
-          const sub = path.join(projectsDir, entry);
+      const walk = (dir: string): string[] =>
+        fs.readdirSync(dir).flatMap((entry) => {
+          const fullPath = path.join(dir, entry);
           try {
-            return fs.statSync(sub).isDirectory()
-              ? fs.readdirSync(sub).filter((f) => f.endsWith('.jsonl'))
-              : [];
+            if (fs.statSync(fullPath).isDirectory()) {
+              return walk(fullPath);
+            }
+            return fullPath.endsWith('.jsonl') ? [fullPath] : [];
           } catch {
             return [];
           }
         });
+
+      try {
+        if (!fs.existsSync(projectsDir)) return [];
+        return walk(projectsDir);
       } catch {
         return [];
       }
@@ -101,9 +105,9 @@ test('clicking + Agent spawns mock claude and creates a JSONL session file', asy
       contentType: 'text/plain',
     });
 
-    // 6. Assert: terminal "Claude Code #1" is visible in VS Code UI
+    // 6. Assert: terminal "Codex #1" is visible in VS Code UI
     //    VS Code renders the terminal name as visible text in the tab bar.
-    const terminalTab = window.getByText(/Claude Code #\d+/);
+    const terminalTab = window.getByText(/Codex #\d+/);
     await expect(terminalTab.first()).toBeVisible({ timeout: 15_000 });
   } finally {
     // Save a screenshot of the final state regardless of outcome

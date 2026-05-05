@@ -6,8 +6,8 @@ import path from 'path';
 
 const REPO_ROOT = path.join(__dirname, '../..');
 const VSCODE_PATH_FILE = path.join(REPO_ROOT, '.vscode-test/vscode-executable.txt');
-const MOCK_CLAUDE_PATH = path.join(REPO_ROOT, 'e2e/fixtures/mock-claude');
-const MOCK_CLAUDE_CMD_PATH = path.join(REPO_ROOT, 'e2e/fixtures/mock-claude.cmd');
+const MOCK_CODEX_PATH = path.join(REPO_ROOT, 'e2e/fixtures/mock-codex');
+const MOCK_CODEX_CMD_PATH = path.join(REPO_ROOT, 'e2e/fixtures/mock-codex.cmd');
 const ARTIFACTS_DIR = path.join(REPO_ROOT, 'test-results/e2e');
 const IS_WINDOWS = process.platform === 'win32';
 const PATH_SEP = IS_WINDOWS ? ';' : ':';
@@ -27,8 +27,8 @@ export interface VSCodeSession {
 /**
  * Launch VS Code with the Pixel Agents extension loaded in development mode.
  *
- * Uses an isolated temp HOME and injects the mock `claude` binary at the
- * front of PATH so no real Claude CLI is needed.
+ * Uses an isolated temp HOME and injects the mock `codex` binary at the
+ * front of PATH so no real Codex CLI is needed.
  */
 export async function launchVSCode(testTitle: string): Promise<VSCodeSession> {
   const vscodePath = fs.readFileSync(VSCODE_PATH_FILE, 'utf8').trim();
@@ -47,7 +47,7 @@ export async function launchVSCode(testTitle: string): Promise<VSCodeSession> {
 
   // On Windows, os.tmpdir() may return an 8.3 short path (e.g. RUNNER~1) while
   // child processes see the long path (e.g. runneradmin) via %CD%. Normalize to
-  // the canonical long path so the project hash computed here matches mock-claude.
+  // the canonical long path so session cwd checks match the mock Codex session.
   // fs.realpathSync only resolves symlinks; .native uses GetFinalPathNameByHandleW
   // which also resolves 8.3 short names to their full form.
   const resolvedWorkspaceDir = IS_WINDOWS ? fs.realpathSync.native(workspaceDir) : workspaceDir;
@@ -70,13 +70,13 @@ export async function launchVSCode(testTitle: string): Promise<VSCodeSession> {
     }
   }
 
-  // Copy mock-claude into an isolated bin dir
+  // Copy mock-codex into an isolated bin dir
   if (IS_WINDOWS) {
-    // Windows: copy the .cmd batch file as 'claude.cmd'
-    fs.copyFileSync(MOCK_CLAUDE_CMD_PATH, path.join(mockBinDir, 'claude.cmd'));
+    // Windows: copy the .cmd batch file as 'codex.cmd'
+    fs.copyFileSync(MOCK_CODEX_CMD_PATH, path.join(mockBinDir, 'codex.cmd'));
   } else {
-    const mockDest = path.join(mockBinDir, 'claude');
-    fs.copyFileSync(MOCK_CLAUDE_PATH, mockDest);
+    const mockDest = path.join(mockBinDir, 'codex');
+    fs.copyFileSync(MOCK_CODEX_PATH, mockDest);
     fs.chmodSync(mockDest, 0o755);
   }
 
@@ -111,7 +111,7 @@ export async function launchVSCode(testTitle: string): Promise<VSCodeSession> {
     );
   }
 
-  const mockLogFile = path.join(tmpHome, '.claude-mock', 'invocations.log');
+  const mockLogFile = path.join(tmpHome, '.codex-mock', 'invocations.log');
 
   // --- Video output dir ---
   const safeTitle = testTitle.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
@@ -122,7 +122,7 @@ export async function launchVSCode(testTitle: string): Promise<VSCodeSession> {
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     HOME: tmpHome,
-    // Prepend mock bin so 'claude' resolves to our mock
+    // Prepend mock bin so 'codex' resolves to our mock
     PATH: `${mockBinDir}${PATH_SEP}${process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin'}`,
     // Prevent VS Code from trying to talk to real accounts / telemetry
     VSCODE_TELEMETRY_DISABLED: '1',

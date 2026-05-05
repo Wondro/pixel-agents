@@ -1,0 +1,5 @@
+interface:
+  display_name: "Performance Pass"
+  short_description: "Review performance-sensitive paths, queries, API latency, bundle size, and expensive SaaS operations."
+policy:
+  allow_implicit_invocation: true

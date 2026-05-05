@@ -1,0 +1,5 @@
+interface:
+  display_name: "Parallel Security Review"
+  short_description: "Run independent parallel security reviews for appsec, auth/billing, and infra/dependencies."
+policy:
+  allow_implicit_invocation: true

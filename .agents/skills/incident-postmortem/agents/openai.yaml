@@ -1,0 +1,5 @@
+interface:
+  display_name: "Incident Postmortem"
+  short_description: "Document a production incident, security issue, outage, or billing/auth bug."
+policy:
+  allow_implicit_invocation: true

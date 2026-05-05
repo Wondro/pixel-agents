@@ -4,7 +4,7 @@ export const FILE_WATCHER_POLL_INTERVAL_MS = 500;
 export const PROJECT_SCAN_INTERVAL_MS = 1000;
 
 // ── Heuristic Agent Status Detection ────────────────────────
-// These timers are the fallback when Claude Code Hooks are not
+// These timers are the fallback when runtime hooks are not
 // active (hookDelivered = false). When hooks are working, these
 // are suppressed and the server receives instant events instead.
 /** Delay before sending agentToolDone (prevents UI flicker on rapid tool transitions) */
@@ -45,15 +45,13 @@ export const SERVER_JSON_NAME = 'server.json';
 export const HOOK_SCRIPTS_DIR = '.pixel-agents/hooks';
 export const HOOK_API_PREFIX = '/api/hooks';
 
-// Claude-specific constants live in providers/hook/claude/constants.ts.
-// Re-exported here for backward-compatibility of existing callers that import
-// from '../server/src/constants.js'. New code should import directly from the provider.
-export { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_SCRIPT_NAME } from './providers/hook/claude/constants.js';
+// Codex-specific constants live in providers/hook/codex/constants.ts.
+export { CODEX_HOOK_EVENTS, CODEX_HOOK_SCRIPT_NAME } from './providers/hook/codex/constants.js';
 
 export const HOOK_EVENT_BUFFER_MS = 5_000;
 /** Grace period after SessionEnd(reason=clear/resume) before triggering onSessionEnd.
  *  /clear and /resume fire SessionEnd then SessionStart within ms. This timeout is a
- *  safety net: if SessionStart never arrives (e.g. Claude crashes mid-transition),
+ *  safety net: if SessionStart never arrives during a session transition,
  *  the agent is cleaned up instead of staying as a zombie with pendingClear forever. */
 export const SESSION_END_GRACE_MS = 2000;
 export const MAX_HOOK_BODY_SIZE = 65_536; // 64KB

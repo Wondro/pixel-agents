@@ -1,0 +1,5 @@
+interface:
+  display_name: "Bug Repro Fix"
+  short_description: "Reproduce, isolate, fix, and verify a bug with regression tests."
+policy:
+  allow_implicit_invocation: true

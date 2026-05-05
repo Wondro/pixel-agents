@@ -8,8 +8,8 @@ import { HookEventHandler } from '../server/src/hookEventHandler.js';
 import {
   installHooks,
   uninstallHooks,
-} from '../server/src/providers/hook/claude/claudeHookInstaller.js';
-import { claudeProvider, copyHookScript } from '../server/src/providers/index.js';
+} from '../server/src/providers/hook/codex/codexHookInstaller.js';
+import { codexProvider, copyHookScript } from '../server/src/providers/index.js';
 import { PixelAgentsServer } from '../server/src/server.js';
 import {
   getProjectDirPath,
@@ -87,8 +87,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   externalScanTimer: ReturnType<typeof setInterval> | null = null;
   staleCheckTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Global session scanning (opt-in "Watch All Sessions" toggle)
-  watchAllSessions = { current: false };
+  // Global session scanning (default-on "Monitor Codex Chat" toggle)
+  watchAllSessions = { current: true };
   // Hooks enabled state (mutable ref for passing to scanners)
   hooksEnabled = { current: true };
   globalDismissedFiles = new Set<string>();
@@ -129,23 +129,22 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       this.waitingTimers,
       this.permissionTimers,
       () => this.webview,
-      claudeProvider,
+      codexProvider,
       this.watchAllSessions,
     );
 
-    // Register Claude's team provider (if present on the hook provider) with the file
+    // Register Codex's team provider (if present on the hook provider) with the file
     // watcher module + transcriptParser, plus the teammate removal callback.
-    if (claudeProvider.team) {
-      setTeamProvider(claudeProvider.team);
+    if (codexProvider.team) {
+      setTeamProvider(codexProvider.team);
     }
-    setHookProvider(claudeProvider);
+    setHookProvider(codexProvider);
     setTeammateRemovalCallback((id) => this.removeTeammate(id, 'team-config'));
 
     this.hookEventHandler.setLifecycleCallbacks({
       onExternalSessionDetected: (sessionId, transcriptPath, cwd) => {
-        // Workspace filtering: only adopt if in a tracked project dir or Watch All Sessions is ON
-        const projectDir = transcriptPath ? path.dirname(transcriptPath) : cwd;
-        if (!isTrackedProjectDir(projectDir) && !this.watchAllSessions.current) {
+        // Workspace filtering: only adopt if in a tracked project dir or Monitor Codex Chat is ON
+        if (!this.shouldAdoptCodexSession(cwd, transcriptPath)) {
           return; // Not our workspace and Watch All is OFF, ignore
         }
         adoptExternalSessionFromHook(
@@ -318,7 +317,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   /** Register an agent with the hook event handler for session->agent mapping.
    *  hookDelivered is NOT set here. It is set only in hookEventHandler.handleEvent()
    *  when an actual hook event arrives, preserving heuristic fallback for agents
-   *  where hooks aren't working (older Claude, hooks not installed, etc.) */
+   *  where hooks aren't working or not installed. */
   registerAgentHook(agent: AgentState): void {
     this.hookEventHandler?.registerAgent(agent.sessionId, agent.id);
   }
@@ -328,13 +327,64 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
     this.hookEventHandler?.unregisterAgent(agent.sessionId);
   }
 
+  private async enableCodexSessionMonitoring(): Promise<void> {
+    if (this.watchAllSessions.current) return;
+    this.watchAllSessions.current = true;
+    await this.context.globalState.update(GLOBAL_KEY_WATCH_ALL_SESSIONS, true);
+    for (const file of this.globalDismissedFiles) {
+      dismissedJsonlFiles.delete(file);
+    }
+    this.globalDismissedFiles.clear();
+    this.webview?.postMessage({ type: 'settingsLoaded', watchAllSessions: true });
+  }
+
+  private isSameOrChildPath(child: string, parent: string): boolean {
+    const resolvedChild = path.resolve(child).toLowerCase();
+    const resolvedParent = path.resolve(parent).toLowerCase();
+    return resolvedChild === resolvedParent || resolvedChild.startsWith(resolvedParent + path.sep);
+  }
+
+  private shouldAdoptCodexSession(cwd: string | undefined, transcriptPath?: string): boolean {
+    if (this.watchAllSessions.current) return true;
+
+    if (cwd) {
+      for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        if (this.isSameOrChildPath(cwd, folder.uri.fsPath)) return true;
+      }
+      for (const agent of this.agents.values()) {
+        if (agent.cwd && this.isSameOrChildPath(cwd, agent.cwd)) return true;
+      }
+    }
+
+    const projectDir = transcriptPath ? path.dirname(transcriptPath) : cwd;
+    return !!projectDir && isTrackedProjectDir(projectDir);
+  }
+
+  private async openCodexChatWindow(): Promise<boolean> {
+    const commands = await vscode.commands.getCommands(true);
+    const command = commands.includes('chatgpt.newCodexPanel')
+      ? 'chatgpt.newCodexPanel'
+      : commands.includes('chatgpt.openSidebar')
+        ? 'chatgpt.openSidebar'
+        : null;
+
+    if (!command) return false;
+
+    await this.enableCodexSessionMonitoring();
+    await vscode.commands.executeCommand(command, { source: 'pixel-agents' });
+    return true;
+  }
+
   resolveWebviewView(webviewView: vscode.WebviewView) {
     this.webviewView = webviewView;
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = getWebviewContent(webviewView.webview, this.extensionUri);
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
-      if (message.type === 'openClaude') {
+      if (message.type === 'openCodex') {
+        if (!message.bypassPermissions && (await this.openCodexChatWindow())) {
+          return;
+        }
         const prevAgentIds = new Set(this.agents.keys());
         await launchNewTerminal(
           this.nextAgentId,
@@ -495,7 +545,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           (this.context.extension.packageJSON as { version?: string }).version ?? '';
         const watchAllSessions = this.context.globalState.get<boolean>(
           GLOBAL_KEY_WATCH_ALL_SESSIONS,
-          false,
+          true,
         );
         const alwaysShowLabels = this.context.globalState.get<boolean>(
           GLOBAL_KEY_ALWAYS_SHOW_LABELS,

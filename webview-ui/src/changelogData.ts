@@ -30,17 +30,26 @@ export const changelogEntries: ChangelogEntry[] = [
       {
         title: 'Features',
         items: [
+          'Codex chat/sidebar monitoring by default',
           'Hooks-first session management with dual-mode architecture (hooks + heuristic fallback)',
-          'Claude Code hooks for instant agent status detection',
+          'Codex hooks for instant agent status detection',
           'External session support and Agent tool recognition',
           'Multi-root workspace agent detection across all workspace folders',
           'Load custom characters from external asset directories',
+          'New animated computer, chair, desk, and office accessory assets',
           'Tailwind CSS v4 migration for the webview UI',
         ],
       },
       {
         title: 'Fixes',
         items: [
+          'Launch Codex from the OpenAI VS Code extension bundle when codex is not on terminal PATH',
+          'Read newer Codex chat metadata from nested payload records',
+          'Keep spawned Codex agents visible until their close events arrive',
+          'Prevent duplicate top-level agents for spawned Codex child sessions',
+          'Ignore incomplete Codex spawn attempts without child thread ids',
+          'Remove toolbar agent launch button',
+          'Harden Codex hook/session lifecycle edge cases from parallel review',
           'Prevent duplicate restores, fix tool status reconnect, improve agent tool detection',
         ],
       },
@@ -81,12 +90,12 @@ export const changelogEntries: ChangelogEntry[] = [
       {
         name: '@pablodelucca',
         url: 'https://github.com/pablodelucca',
-        description: 'Claude Code hooks integration, Tailwind v4 migration',
+        description: 'Codex hooks integration, Tailwind v4 migration',
       },
       {
         name: '@NNTin',
         url: 'https://github.com/NNTin',
-        description: 'Claude Code hooks integration, Tailwind v4 migration',
+        description: 'Codex hooks integration, Tailwind v4 migration',
       },
       {
         name: '@florintimbuc',
@@ -101,7 +110,7 @@ export const changelogEntries: ChangelogEntry[] = [
       {
         title: 'Features',
         items: [
-          'Bypass permissions mode — right-click "+ Agent" to skip tool approvals',
+          'Bypass permissions mode for agent launch controls',
           'External asset packs — load furniture from user-defined directories',
           'Improved seating, sub-agent spawning, and background agent support',
           'Always show overlay setting for agent labels',
@@ -115,7 +124,7 @@ export const changelogEntries: ChangelogEntry[] = [
       },
       {
         title: 'Testing',
-        items: ['Playwright e2e tests with mock Claude CLI'],
+        items: ['Playwright e2e tests with mock Codex CLI'],
       },
       {
         title: 'Maintenance',

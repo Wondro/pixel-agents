@@ -532,7 +532,7 @@
     <h2>Open a JSONL project folder</h2>
     <p>Load a folder to browse sessions, or a single file to inspect it</p>
     <p style="font-size:11px;color:var(--text-dim);margin-bottom:4px">
-      Sessions live at: <code>~/.claude/projects/&lt;hash&gt;/</code>
+      Sessions live at: <code>~/.codex/sessions/&lt;yyyy&gt;/&lt;mm&gt;/&lt;dd&gt;/</code>
     </p>
     <div class="btns">
       <button class="hdr-btn primary" id="openFolderBtn">Open Folder</button>
@@ -1003,7 +1003,7 @@ function renderConversation(session) {
 
     const roleLabel = document.createElement('div');
     roleLabel.className = `convo-msg-role ${msg.role}`;
-    roleLabel.textContent = msg.role === 'user' ? 'You' : 'Claude';
+    roleLabel.textContent = msg.role === 'user' ? 'You' : 'Codex';
     div.appendChild(roleLabel);
 
     const body = document.createElement('div');

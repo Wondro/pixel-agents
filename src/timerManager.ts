@@ -39,12 +39,14 @@ export function clearAgentActivity(
   // Re-send background agent tools so webview re-creates their sub-agents
   for (const toolId of agent.backgroundAgentToolIds) {
     const status = agent.activeToolStatuses.get(toolId);
+    const toolName = agent.activeToolNames.get(toolId);
     if (status) {
       webview?.postMessage({
         type: 'agentToolStart',
         id: agentId,
         toolId,
         status,
+        toolName,
       });
     }
   }

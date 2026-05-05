@@ -1,0 +1,5 @@
+interface:
+  display_name: "Dependency Audit"
+  short_description: "Inspect package dependencies, scripts, lockfiles, and update risk."
+policy:
+  allow_implicit_invocation: true

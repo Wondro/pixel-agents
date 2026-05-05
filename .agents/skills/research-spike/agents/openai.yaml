@@ -1,0 +1,5 @@
+interface:
+  display_name: "Research Spike"
+  short_description: "Research a technical approach or vendor integration and produce options with tradeoffs."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Docs Update"
+  short_description: "Update project memory, developer docs, user docs, release notes, and runbooks after changes."
+policy:
+  allow_implicit_invocation: true

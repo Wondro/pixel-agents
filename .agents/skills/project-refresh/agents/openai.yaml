@@ -1,0 +1,5 @@
+interface:
+  display_name: "Project Refresh"
+  short_description: "Refresh project memory, perform first-run intake, inventory systems, and consolidate merged branch memory."
+policy:
+  allow_implicit_invocation: true

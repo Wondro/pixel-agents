@@ -99,7 +99,7 @@ export function SettingsModal({
         }}
       />
       <Checkbox
-        label="Watch All Sessions"
+        label="Monitor Codex Chat"
         checked={watchAllSessions}
         onChange={onToggleWatchAllSessions}
       />

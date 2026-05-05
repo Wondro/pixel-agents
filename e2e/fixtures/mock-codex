@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Mock 'codex' executable for Pixel Agents e2e tests.
+
+set -euo pipefail
+
+LOG_DIR="${HOME}/.codex-mock"
+mkdir -p "$LOG_DIR"
+echo "$(date -Iseconds) codex cwd=$(pwd) args=$*" >> "${LOG_DIR}/invocations.log"
+
+SESSION_ID="mock-$(date +%s)-$$"
+DAY_DIR="$(date -u +%Y/%m/%d)"
+SESSION_DIR="${HOME}/.codex/sessions/${DAY_DIR}"
+mkdir -p "$SESSION_DIR"
+JSONL_FILE="${SESSION_DIR}/rollout-$(date -u +%Y-%m-%dT%H-%M-%S)-${SESSION_ID}.jsonl"
+
+node - "$JSONL_FILE" "$SESSION_ID" "$(pwd)" <<'NODE'
+const fs = require('fs');
+const [file, sessionId, cwd] = process.argv.slice(2);
+const now = new Date().toISOString();
+fs.appendFileSync(
+  file,
+  JSON.stringify({ timestamp: now, type: 'session_meta', id: sessionId, cwd }) + '\n',
+);
+fs.appendFileSync(
+  file,
+  JSON.stringify({ timestamp: now, type: 'event_msg', payload: { type: 'task_started' } }) + '\n',
+);
+NODE
+
+sleep 30 &
+SLEEP_PID=$!
+trap 'kill $SLEEP_PID 2>/dev/null; exit 0' SIGTERM SIGINT
+wait $SLEEP_PID || true

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Ideation Brainstorm"
+  short_description: "Generate product ideas, roadmap options, monetization experiments, and validation plans."
+policy:
+  allow_implicit_invocation: true

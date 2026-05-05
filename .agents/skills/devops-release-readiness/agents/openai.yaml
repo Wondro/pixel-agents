@@ -1,0 +1,5 @@
+interface:
+  display_name: "Devops Release Readiness"
+  short_description: "Review CI/CD, Docker, environment config, deployment, rollback, and observability for release readiness."
+policy:
+  allow_implicit_invocation: true

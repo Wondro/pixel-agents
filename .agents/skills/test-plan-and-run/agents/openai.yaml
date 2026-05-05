@@ -1,0 +1,5 @@
+interface:
+  display_name: "Test Plan And Run"
+  short_description: "Build and run a test plan for changed SaaS code, including auth, billing, and wrong-user cases."
+policy:
+  allow_implicit_invocation: true

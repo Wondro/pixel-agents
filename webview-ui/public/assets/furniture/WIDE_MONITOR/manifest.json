@@ -1,0 +1,108 @@
+{
+  "id": "WIDE_MONITOR",
+  "name": "Wide Monitor",
+  "category": "electronics",
+  "type": "group",
+  "groupType": "rotation",
+  "rotationScheme": "3-way-mirror",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": true,
+  "backgroundTiles": 1,
+  "members": [
+    {
+      "type": "group",
+      "groupType": "state",
+      "orientation": "front",
+      "members": [
+        {
+          "type": "group",
+          "groupType": "animation",
+          "state": "on",
+          "members": [
+            {
+              "type": "asset",
+              "id": "WIDE_MONITOR_FRONT_ON_1",
+              "file": "WIDE_MONITOR_FRONT_ON_1.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 0
+            },
+            {
+              "type": "asset",
+              "id": "WIDE_MONITOR_FRONT_ON_2",
+              "file": "WIDE_MONITOR_FRONT_ON_2.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 1
+            },
+            {
+              "type": "asset",
+              "id": "WIDE_MONITOR_FRONT_ON_3",
+              "file": "WIDE_MONITOR_FRONT_ON_3.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 2
+            },
+            {
+              "type": "asset",
+              "id": "WIDE_MONITOR_FRONT_ON_4",
+              "file": "WIDE_MONITOR_FRONT_ON_4.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 3
+            },
+            {
+              "type": "asset",
+              "id": "WIDE_MONITOR_FRONT_ON_5",
+              "file": "WIDE_MONITOR_FRONT_ON_5.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 4
+            }
+          ]
+        },
+        {
+          "type": "asset",
+          "id": "WIDE_MONITOR_FRONT_OFF",
+          "file": "WIDE_MONITOR_FRONT_OFF.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "state": "off"
+        }
+      ]
+    },
+    {
+      "type": "asset",
+      "id": "WIDE_MONITOR_BACK",
+      "file": "WIDE_MONITOR_BACK.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "orientation": "back"
+    },
+    {
+      "type": "asset",
+      "id": "WIDE_MONITOR_SIDE",
+      "file": "WIDE_MONITOR_SIDE.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "orientation": "side",
+      "mirrorSide": true
+    }
+  ]
+}

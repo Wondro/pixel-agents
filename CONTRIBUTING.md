@@ -109,7 +109,7 @@ npm run test:server
 npm run test:webview
 ```
 
-Server tests cover the HTTP server, hook event routing, hook installer, and the hook script (integration test spawning a real Node process). They run after build since `claude-hook.test.ts` needs the compiled hook script at `dist/hooks/claude-hook.js`.
+Server tests cover the HTTP server, hook event routing, hook installer, and the hook script (integration test spawning a real Node process). They run after build since `codex-hook.test.ts` needs the compiled hook script at `dist/hooks/codex-hook.js`.
 
 ## End-to-End Tests
 
@@ -142,15 +142,15 @@ All test artifacts are written to `test-results/e2e/`:
 
 On failure, the test output prints the path to the video for that run.
 
-### Mock claude
+### Mock Codex
 
-Tests never invoke the real `claude` CLI. Instead, a bash script at `e2e/fixtures/mock-claude` is copied into an isolated `bin/` directory and prepended to `PATH` before VS Code starts.
+Tests never invoke the real `codex` CLI. Instead, a bash script at `e2e/fixtures/mock-codex` is copied into an isolated `bin/` directory and prepended to `PATH` before VS Code starts.
 
 The mock:
 
-1. Parses `--session-id <uuid>` from its arguments.
-2. Appends a line to `$HOME/.claude-mock/invocations.log` so tests can assert it was called.
-3. Creates `$HOME/.claude/projects/<project-hash>/<session-id>.jsonl` with a minimal init line so the extension's file-watcher can detect the session.
+1. Records the Codex invocation arguments.
+2. Appends a line to `$HOME/.codex-mock/invocations.log` so tests can assert it was called.
+3. Creates `$HOME/.codex/sessions/<yyyy>/<mm>/<dd>/<session>.jsonl` with minimal Codex session metadata so the extension's file-watcher can detect the session.
 4. Sleeps for 30 s (keeps the terminal alive) then exits.
 
 Each test runs with an isolated `HOME` and `--user-data-dir`, so no test state leaks between runs or into your real VS Code profile.

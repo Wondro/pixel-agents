@@ -1,0 +1,5 @@
+interface:
+  display_name: "Parallel Code Review"
+  short_description: "Run independent parallel code reviews for logic, integration, and maintainability."
+policy:
+  allow_implicit_invocation: true
