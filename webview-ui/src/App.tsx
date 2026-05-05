@@ -301,8 +301,8 @@ function App() {
             <li className="text-sm mb-2">Sound notifications play immediately</li>
           </ul>
           <p className="mb-12 text-text-muted">
-            This works through Codex hooks, small event listeners that notify Pixel Agents
-            whenever something happens in your Codex sessions.
+            This works through Codex hooks, small event listeners that notify Pixel Agents whenever
+            something happens in your Codex sessions.
           </p>
           <div className="text-center">
             <button
