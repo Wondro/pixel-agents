@@ -300,9 +300,9 @@ export function EditorToolbar({
         </div>
       )}
 
-      {/* Sub-panel: Furniture — stacked bottom-to-top via column-reverse */}
+      {/* Sub-panel: Zones */}
       {isZoneActive && (
-        <div className="flex flex-col-reverse gap-4 max-w-[760px]">
+        <div className="flex flex-col-reverse gap-4 w-[320px] max-w-[calc(100vw-40px)]">
           <div className="flex gap-4 items-center flex-wrap">
             <input
               value={newZoneName}
@@ -324,7 +324,7 @@ export function EditorToolbar({
           </div>
 
           {zones.length > 0 && (
-            <div className="flex gap-6 overflow-x-auto pb-2">
+            <div className="flex flex-col-reverse gap-4 overflow-y-auto max-h-[50vh] pr-2">
               {zones.map((zone) => {
                 const isAllAgentsZone = allAgentsAssignedToZone(zone.label);
                 const assignedAgents = baseAgents.filter((agent) =>
@@ -336,7 +336,7 @@ export function EditorToolbar({
                 return (
                   <div
                     key={zone.label}
-                    className={`border-2 bg-bg-dark p-4 min-w-[220px] max-w-[280px] ${
+                    className={`border-2 bg-bg-dark p-4 w-full ${
                       selectedZoneLabel === zone.label ? 'border-accent' : 'border-border'
                     }`}
                   >
