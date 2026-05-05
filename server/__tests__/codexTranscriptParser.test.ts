@@ -294,4 +294,51 @@ describe('Codex transcript spawned agent lifecycle', () => {
       ),
     ).toBe(true);
   });
+
+  it('uses Agent as a visible fallback label for spawned children without a nickname or role', () => {
+    const agent = createAgent();
+    const agents = new Map([[1, agent]]);
+    const waitingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+    const permissionTimers = new Map<number, ReturnType<typeof setTimeout>>();
+    const { messages, webview } = createWebviewSink();
+
+    processTranscriptLine(
+      1,
+      codexLine({
+        type: 'function_call',
+        name: 'spawn_agent',
+        call_id: 'blank-name-spawn',
+        arguments: JSON.stringify({ agent_type: 'explorer' }),
+      }),
+      agents,
+      waitingTimers,
+      permissionTimers,
+      webview,
+    );
+
+    processTranscriptLine(
+      1,
+      codexLine({
+        type: 'collab_agent_spawn_end',
+        call_id: 'blank-name-spawn',
+        new_thread_id: 'thread-without-name',
+        new_agent_nickname: '   ',
+        new_agent_role: '',
+      }),
+      agents,
+      waitingTimers,
+      permissionTimers,
+      webview,
+    );
+
+    expect(agent.activeToolStatuses.get('blank-name-spawn')).toBe('Subtask: Agent');
+    expect(
+      messages.some(
+        (message) =>
+          message.type === 'agentToolStart' &&
+          message.toolId === 'blank-name-spawn' &&
+          message.status === 'Subtask: Agent',
+      ),
+    ).toBe(true);
+  });
 });

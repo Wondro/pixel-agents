@@ -10,9 +10,10 @@ import {
 import type { HookProvider } from '../server/src/provider.js';
 import { normalizeCodexToolName } from '../server/src/providers/hook/codex/codex.js';
 import {
+  dismissSpawnedAgent,
   findSpawnedAgentToolId,
-  forgetSpawnedAgent,
   rememberSpawnedAgent,
+  spawnedAgentLabel,
 } from './spawnedAgentTracking.js';
 import {
   cancelPermissionTimer,
@@ -747,29 +748,21 @@ function registerSpawnedCodexAgent(
     typeof payload.new_thread_id === 'string' ? payload.new_thread_id.trim() : '';
   if (!childThreadId) return;
 
-  const label =
-    typeof payload.new_agent_nickname === 'string' && payload.new_agent_nickname.trim()
-      ? payload.new_agent_nickname
-      : typeof payload.new_agent_role === 'string'
-        ? payload.new_agent_role
-        : 'Agent';
-  const status = `Subtask: ${label}`;
+  const status = `Subtask: ${spawnedAgentLabel(payload)}`;
 
   if (!agent.activeToolIds.has(parentToolId)) {
     agent.activeToolIds.add(parentToolId);
-    agent.activeToolStatuses.set(parentToolId, status);
     agent.activeToolNames.set(parentToolId, 'Agent');
-    webview?.postMessage({
-      type: 'agentToolStart',
-      id: agentId,
-      toolId: parentToolId,
-      status,
-      toolName: 'Agent',
-      permissionActive: agent.permissionSent,
-    });
-  } else {
-    agent.activeToolStatuses.set(parentToolId, status);
   }
+  agent.activeToolStatuses.set(parentToolId, status);
+  webview?.postMessage({
+    type: 'agentToolStart',
+    id: agentId,
+    toolId: parentToolId,
+    status,
+    toolName: 'Agent',
+    permissionActive: agent.permissionSent,
+  });
 
   agent.backgroundAgentToolIds.add(parentToolId);
   rememberSpawnedAgent(agent, parentToolId, [
@@ -796,13 +789,7 @@ function removeSpawnedCodexAgent(
   const parentToolId = findSpawnedAgentToolId(agent, identifiers);
   if (!parentToolId) return;
 
-  forgetSpawnedAgent(agent, parentToolId);
-  agent.backgroundAgentToolIds.delete(parentToolId);
-  agent.activeToolIds.delete(parentToolId);
-  agent.activeToolStatuses.delete(parentToolId);
-  agent.activeToolNames.delete(parentToolId);
-  agent.activeSubagentToolIds.delete(parentToolId);
-  agent.activeSubagentToolNames.delete(parentToolId);
+  dismissSpawnedAgent(agent, parentToolId);
 
   webview?.postMessage({
     type: 'subagentClear',

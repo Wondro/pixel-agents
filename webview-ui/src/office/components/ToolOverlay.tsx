@@ -206,7 +206,7 @@ export function ToolOverlay({
                   </span>
                 )}
               </div>
-              {isSelected && !isSub && (
+              {isSelected && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -214,7 +214,7 @@ export function ToolOverlay({
                     e.stopPropagation();
                     onCloseAgent(id);
                   }}
-                  title="Close agent"
+                  title={isSub ? 'Dismiss spawned agent' : 'Close agent'}
                   className="ml-2 shrink-0 leading-none"
                 >
                   ×

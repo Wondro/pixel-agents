@@ -330,6 +330,11 @@ wss.on('connection', (ws) => {
           scanner.dismissAgent(message.id);
         }
         break;
+      case 'dismissSubagent':
+        if (typeof message.parentAgentId === 'number' && typeof message.parentToolId === 'string') {
+          scanner.dismissSubagent(message.parentAgentId, message.parentToolId);
+        }
+        break;
       case 'focusAgent':
       case 'openCodex':
       case 'openSessionsFolder':

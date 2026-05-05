@@ -6,6 +6,7 @@ import chokidar from 'chokidar';
 
 import {
   buildReplayMessages,
+  dismissSpawnedAgent,
   formatToolStatus,
   getStateSignature,
   normalizeCodexToolName,
@@ -300,6 +301,16 @@ export class CodexSessionScanner {
     this.agentsBySessionId.delete(sessionId);
     this.sessionIdByAgentId.delete(agentId);
     this.onMessage({ type: 'agentClosed', id: agentId });
+  }
+
+  dismissSubagent(parentAgentId, parentToolId) {
+    const agent = [...this.agentsBySessionId.values()].find(
+      (candidate) => candidate.id === parentAgentId,
+    );
+    if (!agent || !dismissSpawnedAgent(agent.state, parentToolId)) return;
+
+    this.onMessage({ type: 'subagentClear', id: parentAgentId, parentToolId });
+    this.onMessage({ type: 'agentToolDone', id: parentAgentId, toolId: parentToolId });
   }
 
   markAgentActive(agent) {

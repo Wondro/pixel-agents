@@ -209,6 +209,18 @@ function removeSpawnedAgent(state, identifiers) {
   const parentToolId = findSpawnedToolId(state, identifiers);
   if (!parentToolId) return;
 
+  dismissSpawnedAgent(state, parentToolId);
+}
+
+export function dismissSpawnedAgent(state, parentToolId) {
+  if (typeof parentToolId !== 'string' || !parentToolId.trim()) return false;
+
+  if (Array.isArray(state.activeTools)) {
+    const before = state.activeTools.length;
+    state.activeTools = state.activeTools.filter((tool) => tool.toolId !== parentToolId);
+    return state.activeTools.length !== before;
+  }
+
   const knownIdentifiers = state.spawnedToolIdentifiers.get(parentToolId) ?? [];
   for (const identifier of knownIdentifiers) {
     state.spawnedThreadIds.delete(identifier);
@@ -216,6 +228,7 @@ function removeSpawnedAgent(state, identifiers) {
   state.spawnedToolIdentifiers.delete(parentToolId);
   state.backgroundToolIds.delete(parentToolId);
   state.activeTools.delete(parentToolId);
+  return true;
 }
 
 function completeTurn(state) {

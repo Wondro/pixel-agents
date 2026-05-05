@@ -4,6 +4,7 @@ import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  dismissSpawnedAgent,
   findSpawnedAgentOwner,
   findSpawnedAgentToolId,
   forgetSpawnedAgent,
@@ -18,6 +19,8 @@ function createAgent(id: number): AgentState {
     activeToolIds: new Set(),
     activeToolStatuses: new Map(),
     activeToolNames: new Map(),
+    activeSubagentToolIds: new Map(),
+    activeSubagentToolNames: new Map(),
     backgroundAgentToolIds: new Set(),
     spawnedAgentToolIds: new Map(),
   } as AgentState;
@@ -115,6 +118,68 @@ describe('spawned agent tracking', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('restores spawned children with blank names using an Agent fallback label', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-spawn-restore-'));
+    const transcript = path.join(dir, 'session.jsonl');
+    fs.writeFileSync(
+      transcript,
+      [
+        codexLine({
+          type: 'collab_agent_spawn_end',
+          call_id: 'spawn-call',
+          new_thread_id: 'child-thread',
+          new_agent_nickname: '   ',
+          new_agent_role: '',
+        }),
+      ].join('\n'),
+    );
+
+    try {
+      const agent = createAgent(1);
+      restoreSpawnedAgentsFromCodexTranscript(agent, transcript);
+
+      expect(agent.activeToolStatuses.get('spawn-call')).toBe('Subtask: Agent');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('dismisses a restored spawned child by parent tool id', () => {
+    const agent = createAgent(1);
+    rememberSpawnedAgent(agent, 'spawn-call', ['child-thread', 'Scout']);
+    agent.backgroundAgentToolIds.add('spawn-call');
+    agent.activeToolIds.add('spawn-call');
+    agent.activeToolStatuses.set('spawn-call', 'Subtask: Scout');
+    agent.activeToolNames.set('spawn-call', 'Agent');
+    agent.activeSubagentToolIds.set('spawn-call', new Set(['sub-tool']));
+    agent.activeSubagentToolNames.set('spawn-call', new Map([['sub-tool', 'shell_command']]));
+
+    expect(dismissSpawnedAgent(agent, 'spawn-call')).toBe(true);
+
+    expect(agent.backgroundAgentToolIds.has('spawn-call')).toBe(false);
+    expect(agent.activeToolIds.has('spawn-call')).toBe(false);
+    expect(agent.activeToolStatuses.has('spawn-call')).toBe(false);
+    expect(agent.activeToolNames.has('spawn-call')).toBe(false);
+    expect(agent.activeSubagentToolIds.has('spawn-call')).toBe(false);
+    expect(agent.activeSubagentToolNames.has('spawn-call')).toBe(false);
+    expect(findSpawnedAgentToolId(agent, ['child-thread'])).toBeUndefined();
+  });
+
+  it('can dismiss a spawned child visual while keeping duplicate-suppression aliases', () => {
+    const agent = createAgent(1);
+    rememberSpawnedAgent(agent, 'spawn-call', ['child-thread', 'Scout']);
+    agent.backgroundAgentToolIds.add('spawn-call');
+    agent.activeToolIds.add('spawn-call');
+    agent.activeToolStatuses.set('spawn-call', 'Subtask: Scout');
+    agent.activeToolNames.set('spawn-call', 'Agent');
+
+    expect(dismissSpawnedAgent(agent, 'spawn-call', { forgetAliases: false })).toBe(true);
+
+    expect(agent.backgroundAgentToolIds.has('spawn-call')).toBe(false);
+    expect(agent.activeToolIds.has('spawn-call')).toBe(false);
+    expect(findSpawnedAgentToolId(agent, ['child-thread'])).toBe('spawn-call');
   });
 
   it('does not restore spawned children that were closed in the transcript', () => {

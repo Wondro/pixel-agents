@@ -128,6 +128,16 @@ function App() {
   );
 
   const handleCloseAgent = useCallback((id: number) => {
+    const os = getOfficeState();
+    const meta = os.subagentMeta.get(id);
+    if (meta) {
+      vscode.postMessage({
+        type: 'dismissSubagent',
+        parentAgentId: meta.parentAgentId,
+        parentToolId: meta.parentToolId,
+      });
+      return;
+    }
     vscode.postMessage({ type: 'closeAgent', id });
   }, []);
 

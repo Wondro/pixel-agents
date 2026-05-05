@@ -116,6 +116,43 @@ test('suppresses spawned child session files as top-level standalone agents', (t
   assert.deepEqual(agents[0].state.knownSpawnedThreadIds, ['child-session']);
 });
 
+test('dismisses a standalone spawned child by parent tool id', (t) => {
+  const root = withTempSessions(t);
+  const messages = [];
+
+  writeSession(
+    root,
+    'parent.jsonl',
+    [
+      { type: 'session_meta', payload: { id: 'parent-session', cwd: path.join(root, 'parent') } },
+      {
+        type: 'event_msg',
+        payload: {
+          type: 'collab_agent_spawn_end',
+          call_id: 'spawn-1',
+          new_thread_id: 'child-session',
+          new_agent_nickname: 'reviewer',
+        },
+      },
+      { type: 'response_item', payload: { type: 'task_complete' } },
+    ],
+    1,
+  );
+
+  const scanner = new CodexSessionScanner({ onMessage: (message) => messages.push(message) });
+  scanner.refresh();
+  const agent = scanner.getAgents()[0];
+  messages.length = 0;
+
+  scanner.dismissSubagent(agent.id, 'spawn-1');
+
+  assert.deepEqual(messages, [
+    { type: 'subagentClear', id: agent.id, parentToolId: 'spawn-1' },
+    { type: 'agentToolDone', id: agent.id, toolId: 'spawn-1' },
+  ]);
+  assert.deepEqual(agent.state.activeTools, []);
+});
+
 test('hook events update an existing standalone agent immediately', (t) => {
   const root = withTempSessions(t);
   const messages = [];

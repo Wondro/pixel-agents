@@ -62,6 +62,7 @@ import {
 } from './fileWatcher.js';
 import type { LayoutWatcher } from './layoutPersistence.js';
 import { readLayoutFromFile, watchLayoutFile, writeLayoutToFile } from './layoutPersistence.js';
+import { dismissSpawnedAgent } from './spawnedAgentTracking.js';
 import { setHookProvider } from './transcriptParser.js';
 import type { AgentState } from './types.js';
 
@@ -442,6 +443,24 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
               this.persistAgents,
             );
             webviewView.webview.postMessage({ type: 'agentClosed', id: message.id });
+          }
+        }
+      } else if (message.type === 'dismissSubagent') {
+        const parentAgentId = message.parentAgentId;
+        const parentToolId = message.parentToolId;
+        if (typeof parentAgentId === 'number' && typeof parentToolId === 'string') {
+          const agent = this.agents.get(parentAgentId);
+          if (agent && dismissSpawnedAgent(agent, parentToolId, { forgetAliases: false })) {
+            webviewView.webview.postMessage({
+              type: 'subagentClear',
+              id: parentAgentId,
+              parentToolId,
+            });
+            webviewView.webview.postMessage({
+              type: 'agentToolDone',
+              id: parentAgentId,
+              toolId: parentToolId,
+            });
           }
         }
       } else if (message.type === 'saveAgentSeats') {

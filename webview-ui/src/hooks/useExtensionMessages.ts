@@ -240,7 +240,21 @@ export function useExtensionMessages(
         const permissionActive = msg.permissionActive as boolean | undefined;
         setAgentTools((prev) => {
           const list = prev[id] || [];
-          if (list.some((t) => t.toolId === toolId)) return prev;
+          if (list.some((t) => t.toolId === toolId)) {
+            return {
+              ...prev,
+              [id]: list.map((tool) =>
+                tool.toolId === toolId
+                  ? {
+                      ...tool,
+                      status,
+                      done: false,
+                      permissionWait: permissionActive || tool.permissionWait,
+                    }
+                  : tool,
+              ),
+            };
+          }
           return {
             ...prev,
             [id]: [
@@ -271,10 +285,16 @@ export function useExtensionMessages(
           !runInBackground &&
           !toolId.startsWith('hook-')
         ) {
-          const label = status.startsWith('Subtask:') ? status.slice('Subtask:'.length).trim() : '';
+          const label = status.startsWith('Subtask:')
+            ? status.slice('Subtask:'.length).trim() || 'Agent'
+            : 'Agent';
           const subId = os.addSubagent(id, toolId);
           setSubagentCharacters((prev) => {
-            if (prev.some((s) => s.id === subId)) return prev;
+            if (prev.some((s) => s.id === subId)) {
+              return prev.map((subagent) =>
+                subagent.id === subId ? { ...subagent, label } : subagent,
+              );
+            }
             return [...prev, { id: subId, parentAgentId: id, parentToolId: toolId, label }];
           });
         }

@@ -76,11 +76,30 @@ function getPayload(record: Record<string, unknown>): Record<string, unknown> {
   return asRecord(record.payload) ?? record;
 }
 
-function spawnedLabel(payload: Record<string, unknown>): string {
+export function spawnedAgentLabel(payload: Record<string, unknown>): string {
   const nickname = typeof payload.new_agent_nickname === 'string' ? payload.new_agent_nickname : '';
-  if (nickname.trim()) return nickname;
+  if (nickname.trim()) return nickname.trim();
   const role = typeof payload.new_agent_role === 'string' ? payload.new_agent_role : '';
   return role.trim() || 'Agent';
+}
+
+export function dismissSpawnedAgent(
+  agent: AgentState,
+  parentToolId: string,
+  options: { forgetAliases?: boolean } = {},
+): boolean {
+  if (!parentToolId.trim()) return false;
+
+  if (options.forgetAliases !== false) {
+    forgetSpawnedAgent(agent, parentToolId);
+  }
+  agent.backgroundAgentToolIds.delete(parentToolId);
+  agent.activeToolIds.delete(parentToolId);
+  agent.activeToolStatuses.delete(parentToolId);
+  agent.activeToolNames.delete(parentToolId);
+  agent.activeSubagentToolIds.delete(parentToolId);
+  agent.activeSubagentToolNames.delete(parentToolId);
+  return true;
 }
 
 function removeOpenSpawnedAgent(
@@ -135,7 +154,7 @@ export function restoreSpawnedAgentsFromCodexTranscript(
       const identifiers = [childThreadId, payload.new_agent_nickname, payload.new_agent_role];
       open.set(parentToolId, {
         identifiers,
-        status: `Subtask: ${spawnedLabel(payload)}`,
+        status: `Subtask: ${spawnedAgentLabel(payload)}`,
       });
       for (const key of spawnedAgentLookupKeys([parentToolId, ...identifiers])) {
         aliases.set(key, parentToolId);
