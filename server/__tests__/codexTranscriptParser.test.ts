@@ -152,6 +152,14 @@ describe('Codex transcript spawned agent lifecycle', () => {
     expect(
       messages.some(
         (message) =>
+          message.type === 'agentToolsClear' &&
+          Array.isArray(message.preserveSubagentParentToolIds) &&
+          message.preserveSubagentParentToolIds.includes('spawn-call'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (message) =>
           message.type === 'agentToolStart' &&
           message.toolId === 'spawn-call' &&
           message.toolName === 'Agent',

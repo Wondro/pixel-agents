@@ -399,7 +399,13 @@ export function processTranscriptLine(
           }
         }
         if (!agent.hookDelivered) {
-          webview?.postMessage({ type: 'agentToolsClear', id: agentId });
+          webview?.postMessage({
+            type: 'agentToolsClear',
+            id: agentId,
+            preserveSubagentParentToolIds: [...agent.backgroundAgentToolIds].filter((toolId) =>
+              agent.activeToolStatuses.has(toolId),
+            ),
+          });
         }
         // Re-send background agent tools so webview keeps their sub-agents alive
         for (const toolId of agent.backgroundAgentToolIds) {
@@ -827,7 +833,13 @@ function completeCodexTurn(
         agent.pendingCloseAgentTargets.delete(callId);
       }
     }
-    webview?.postMessage({ type: 'agentToolsClear', id: agentId });
+    webview?.postMessage({
+      type: 'agentToolsClear',
+      id: agentId,
+      preserveSubagentParentToolIds: [...agent.backgroundAgentToolIds].filter((toolId) =>
+        agent.activeToolStatuses.has(toolId),
+      ),
+    });
     for (const toolId of agent.backgroundAgentToolIds) {
       const status = agent.activeToolStatuses.get(toolId);
       const toolName = agent.activeToolNames.get(toolId);

@@ -118,7 +118,20 @@ describe('HookEventHandler', () => {
       hook_event_name: 'Stop',
       session_id: 'sess-1',
     });
+    handler.handleEvent('codex', {
+      hook_event_name: 'Stop',
+      session_id: 'sess-1',
+    });
 
+    const clearMessages = mockWebview.messages.filter((m) => m.type === 'agentToolsClear');
+    expect(clearMessages).toHaveLength(2);
+    expect(
+      clearMessages.every(
+        (m) =>
+          Array.isArray(m.preserveSubagentParentToolIds) &&
+          m.preserveSubagentParentToolIds.includes('spawn-call'),
+      ),
+    ).toBe(true);
     expect(
       mockWebview.messages.some(
         (m) => m.type === 'agentToolStart' && m.toolId === 'spawn-call' && m.toolName === 'Agent',

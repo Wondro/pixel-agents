@@ -787,7 +787,14 @@ export class HookEventHandler {
         agent.activeSubagentToolNames.delete(toolId);
       }
     }
-    webview?.postMessage({ type: 'agentToolsClear', id: agentId });
+    const preserveSubagentParentToolIds = [...agent.backgroundAgentToolIds].filter((toolId) =>
+      agent.activeToolStatuses.has(toolId),
+    );
+    webview?.postMessage({
+      type: 'agentToolsClear',
+      id: agentId,
+      preserveSubagentParentToolIds,
+    });
     // Re-send background agent tools to restore them after the clear
     for (const toolId of agent.backgroundAgentToolIds) {
       const status = agent.activeToolStatuses.get(toolId);

@@ -31,6 +31,7 @@ import type {
   TileType as TileTypeVal,
 } from '../types.js';
 import { CharacterState, Direction, MATRIX_EFFECT_DURATION, TILE_SIZE } from '../types.js';
+import { getAppZoneAssignmentKey } from '../zoneAssignments.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 
@@ -191,10 +192,25 @@ export class OfficeState {
     return ch ? this.getBaseAgentId(ch) : agentId;
   }
 
-  private getAssignedZoneLabelsForBaseId(baseAgentId: number): string[] {
-    const labels = this.layout.agentZoneAssignments?.[String(baseAgentId)] ?? [];
+  private getAssignmentKeysForBaseId(baseAgentId: number, appName?: string): string[] {
+    const keys: string[] = [];
+    const baseCh = this.characters.get(baseAgentId);
+    const appKey = getAppZoneAssignmentKey(
+      appName ?? baseCh?.appName ?? baseCh?.folderName ?? baseCh?.teamName,
+    );
+    if (appKey) keys.push(appKey);
+    keys.push(String(baseAgentId));
+    return keys;
+  }
+
+  private getAssignedZoneLabelsForBaseId(baseAgentId: number, appName?: string): string[] {
     const knownZones = new Set((this.layout.zones ?? []).map((zone) => zone.label));
-    return labels.filter((label) => knownZones.has(label));
+    for (const key of this.getAssignmentKeysForBaseId(baseAgentId, appName)) {
+      const labels = this.layout.agentZoneAssignments?.[key] ?? [];
+      const validLabels = labels.filter((label) => knownZones.has(label));
+      if (validLabels.length > 0) return validLabels;
+    }
+    return [];
   }
 
   private getAllAgentZoneLabels(): string[] {
@@ -238,8 +254,11 @@ export class OfficeState {
     );
   }
 
-  private getAllowedWalkableTilesForAgentId(agentId: number): Array<{ col: number; row: number }> {
-    const labels = this.getAssignedZoneLabelsForBaseId(this.getBaseAgentIdForId(agentId));
+  private getAllowedWalkableTilesForAgentId(
+    agentId: number,
+    appName?: string,
+  ): Array<{ col: number; row: number }> {
+    const labels = this.getAssignedZoneLabelsForBaseId(this.getBaseAgentIdForId(agentId), appName);
     if (labels.length === 0) return this.walkableTiles;
     return this.walkableTiles.filter((tile) =>
       this.tileAllowedForAssignments(labels, tile.col, tile.row),
@@ -278,10 +297,10 @@ export class OfficeState {
     return fn(blockedTiles);
   }
 
-  private findFreeSeat(agent?: Character | number): string | null {
+  private findFreeSeat(agent?: Character | number, appName?: string): string | null {
     const labels =
       typeof agent === 'number'
-        ? this.getAssignedZoneLabelsForBaseId(this.getBaseAgentIdForId(agent))
+        ? this.getAssignedZoneLabelsForBaseId(this.getBaseAgentIdForId(agent), appName)
         : agent
           ? this.getAssignedZoneLabelsForCharacter(agent)
           : [];
@@ -415,8 +434,10 @@ export class OfficeState {
     preferredSeatId?: string,
     skipSpawnEffect?: boolean,
     folderName?: string,
+    appName?: string,
   ): void {
     if (this.characters.has(id)) return;
+    const effectiveAppName = appName?.trim() || folderName?.trim() || undefined;
 
     let palette: number;
     let hueShift: number;
@@ -433,12 +454,13 @@ export class OfficeState {
     let seatId: string | null = null;
     if (preferredSeatId && this.seats.has(preferredSeatId)) {
       const seat = this.seats.get(preferredSeatId)!;
-      if (!seat.assigned && this.isTileAllowedForAgent(id, seat.seatCol, seat.seatRow)) {
+      const labels = this.getAssignedZoneLabelsForBaseId(id, effectiveAppName);
+      if (!seat.assigned && this.tileAllowedForAssignments(labels, seat.seatCol, seat.seatRow)) {
         seatId = preferredSeatId;
       }
     }
     if (!seatId) {
-      seatId = this.findFreeSeat(id);
+      seatId = this.findFreeSeat(id, effectiveAppName);
     }
 
     let ch: Character;
@@ -448,7 +470,7 @@ export class OfficeState {
       ch = createCharacter(id, palette, seatId, seat, hueShift);
     } else {
       // No seats — spawn at random walkable tile
-      const walkableTiles = this.getAllowedWalkableTilesForAgentId(id);
+      const walkableTiles = this.getAllowedWalkableTilesForAgentId(id, effectiveAppName);
       const spawn =
         walkableTiles.length > 0
           ? walkableTiles[Math.floor(Math.random() * walkableTiles.length)]
@@ -462,6 +484,9 @@ export class OfficeState {
 
     if (folderName) {
       ch.folderName = folderName;
+    }
+    if (effectiveAppName) {
+      ch.appName = effectiveAppName;
     }
     if (!skipSpawnEffect) {
       ch.matrixEffect = 'spawn';
@@ -675,10 +700,16 @@ export class OfficeState {
 
   /** Remove all sub-agents belonging to a parent agent */
   removeAllSubagents(parentAgentId: number): void {
+    this.removeSubagentsExcept(parentAgentId, new Set());
+  }
+
+  /** Remove all sub-agents for a parent except preserved parent tool IDs. */
+  removeSubagentsExcept(parentAgentId: number, preserveParentToolIds: ReadonlySet<string>): void {
     const toRemove: string[] = [];
     for (const [key, id] of this.subagentIdMap) {
       const meta = this.subagentMeta.get(id);
       if (meta && meta.parentAgentId === parentAgentId) {
+        if (preserveParentToolIds.has(meta.parentToolId)) continue;
         const ch = this.characters.get(id);
         if (ch) {
           if (ch.matrixEffect === 'despawn') {
@@ -854,8 +885,36 @@ export class OfficeState {
     ch.agentName = agentName;
     ch.isTeamLead = isTeamLead;
     ch.leadAgentId = leadAgentId;
+    if (!ch.appName && teamName) {
+      ch.appName = teamName;
+    }
     if (teamUsesTmux !== undefined) {
       ch.teamUsesTmux = teamUsesTmux;
+    }
+    if (
+      this.getAssignedZoneLabelsForCharacter(ch).length > 0 &&
+      !this.isTileAllowedForCharacter(ch, ch.tileCol, ch.tileRow)
+    ) {
+      if (ch.seatId) {
+        const seat = this.seats.get(ch.seatId);
+        if (seat) seat.assigned = false;
+        ch.seatId = null;
+      }
+      const seatId = this.findFreeSeat(ch);
+      if (seatId) {
+        const seat = this.seats.get(seatId)!;
+        seat.assigned = true;
+        ch.seatId = seatId;
+        ch.tileCol = seat.seatCol;
+        ch.tileRow = seat.seatRow;
+        ch.x = seat.seatCol * TILE_SIZE + TILE_SIZE / 2;
+        ch.y = seat.seatRow * TILE_SIZE + TILE_SIZE / 2;
+        ch.dir = seat.facingDir;
+        ch.path = [];
+        ch.moveProgress = 0;
+      } else {
+        this.relocateCharacterToWalkable(ch);
+      }
     }
   }
 

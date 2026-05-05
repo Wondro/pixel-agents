@@ -243,6 +243,14 @@ function completeTurn(state) {
   state.status = 'waiting';
 }
 
+function agentToolsClearMessage(agentId, preserveSubagentParentToolIds = []) {
+  const message = { type: 'agentToolsClear', id: agentId };
+  if (preserveSubagentParentToolIds.length > 0) {
+    message.preserveSubagentParentToolIds = preserveSubagentParentToolIds;
+  }
+  return message;
+}
+
 function processRecord(state, record) {
   const payload = getPayload(record);
 
@@ -373,7 +381,10 @@ export function parseCodexSessionFile(jsonlFile) {
 }
 
 export function buildReplayMessages(agentId, state) {
-  const messages = [{ type: 'agentToolsClear', id: agentId }];
+  const preserveSubagentParentToolIds = state.activeTools
+    .filter((tool) => tool.background)
+    .map((tool) => tool.toolId);
+  const messages = [agentToolsClearMessage(agentId, preserveSubagentParentToolIds)];
 
   if (state.inputTokens > 0 || state.outputTokens > 0) {
     messages.push({

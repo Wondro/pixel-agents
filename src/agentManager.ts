@@ -32,6 +32,12 @@ export function getProjectDirPath(cwd?: string): string {
   return sessionsRoot;
 }
 
+function getAgentAppName(agent: AgentState): string | undefined {
+  const source = agent.cwd || agent.folderName || agent.projectDir;
+  if (!source) return undefined;
+  return path.basename(source) || source;
+}
+
 function listSessionFiles(projectDir: string): string[] {
   if (isCodexSessionRoot(projectDir)) {
     return listCodexSessionFiles(projectDir);
@@ -195,7 +201,7 @@ export async function launchNewTerminal(
   activeAgentIdRef.current = id;
   persistAgents();
   console.log(`[Pixel Agents] Terminal: Agent ${id} - created for terminal ${terminal.name}`);
-  webview?.postMessage({ type: 'agentCreated', id, folderName });
+  webview?.postMessage({ type: 'agentCreated', id, folderName, appName: getAgentAppName(agent) });
 
   ensureProjectScan(
     projectDir,
@@ -595,12 +601,17 @@ export function sendExistingAgents(
     Record<string, { palette?: number; seatId?: string }>
   >(WORKSPACE_KEY_AGENT_SEATS, {});
 
-  // Include folderName and isExternal per agent
+  // Include folderName/appName and isExternal per agent
   const folderNames: Record<number, string> = {};
+  const appNames: Record<number, string> = {};
   const externalAgents: Record<number, boolean> = {};
   for (const [id, agent] of agents) {
     if (agent.folderName) {
       folderNames[id] = agent.folderName;
+    }
+    const appName = getAgentAppName(agent);
+    if (appName) {
+      appNames[id] = appName;
     }
     if (agent.isExternal) {
       externalAgents[id] = true;
@@ -615,6 +626,7 @@ export function sendExistingAgents(
     agents: agentIds,
     agentMeta,
     folderNames,
+    appNames,
     externalAgents,
   });
   // Note: sendCurrentAgentStatuses is called separately AFTER layoutLoaded

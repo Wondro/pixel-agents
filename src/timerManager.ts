@@ -35,8 +35,14 @@ export function clearAgentActivity(
   agent.isWaiting = false;
   agent.permissionSent = false;
   cancelPermissionTimer(agentId, permissionTimers);
-  webview?.postMessage({ type: 'agentToolsClear', id: agentId });
-  // Re-send background agent tools so webview re-creates their sub-agents
+  webview?.postMessage({
+    type: 'agentToolsClear',
+    id: agentId,
+    preserveSubagentParentToolIds: [...agent.backgroundAgentToolIds].filter((toolId) =>
+      agent.activeToolStatuses.has(toolId),
+    ),
+  });
+  // Re-send background agent tools so webview keeps their sub-agents visible.
   for (const toolId of agent.backgroundAgentToolIds) {
     const status = agent.activeToolStatuses.get(toolId);
     const toolName = agent.activeToolNames.get(toolId);

@@ -147,6 +147,33 @@ test('close_agent removes the matching spawned child', () => {
   assert.deepEqual(state.activeTools, []);
 });
 
+test('replay preserves background spawned children across clear messages', () => {
+  const state = parseCodexSessionTranscript([
+    line({ type: 'session_meta', payload: { id: 'parent' } }),
+    line({
+      type: 'response_item',
+      payload: { type: 'function_call', name: 'spawn_agent', call_id: 'spawn-1' },
+    }),
+    line({
+      type: 'response_item',
+      payload: {
+        type: 'collab_agent_spawn_end',
+        call_id: 'spawn-1',
+        new_thread_id: 'thread-a',
+        new_agent_nickname: 'worker-a',
+      },
+    }),
+    line({ type: 'response_item', payload: { type: 'task_complete' } }),
+  ]);
+
+  const messages = buildReplayMessages(7, state);
+  assert.deepEqual(messages[0], {
+    type: 'agentToolsClear',
+    id: 7,
+    preserveSubagentParentToolIds: ['spawn-1'],
+  });
+});
+
 test('builds webview replay messages from current Codex state', () => {
   const state = parseCodexSessionTranscript([
     line({ type: 'session_meta', payload: { id: 'parent' } }),

@@ -1,0 +1,98 @@
+{
+  "id": "BREAK_ROOM_VENDING_MACHINE",
+  "name": "Break Room Vending Machine",
+  "category": "electronics",
+  "type": "group",
+  "groupType": "rotation",
+  "rotationScheme": "3-way-mirror",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 1,
+  "members": [
+    {
+      "type": "group",
+      "groupType": "state",
+      "orientation": "front",
+      "members": [
+        {
+          "type": "group",
+          "groupType": "animation",
+          "state": "on",
+          "members": [
+            {
+              "type": "asset",
+              "id": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_1",
+              "file": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_1.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 0
+            },
+            {
+              "type": "asset",
+              "id": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_2",
+              "file": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_2.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 1
+            },
+            {
+              "type": "asset",
+              "id": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_3",
+              "file": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_3.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 2
+            },
+            {
+              "type": "asset",
+              "id": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_4",
+              "file": "BREAK_ROOM_VENDING_MACHINE_FRONT_ON_4.png",
+              "width": 16,
+              "height": 32,
+              "footprintW": 1,
+              "footprintH": 2,
+              "frame": 3
+            }
+          ]
+        },
+        {
+          "type": "asset",
+          "id": "BREAK_ROOM_VENDING_MACHINE_FRONT_OFF",
+          "file": "BREAK_ROOM_VENDING_MACHINE_FRONT_OFF.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "state": "off"
+        }
+      ]
+    },
+    {
+      "type": "asset",
+      "id": "BREAK_ROOM_VENDING_MACHINE_BACK",
+      "file": "BREAK_ROOM_VENDING_MACHINE_BACK.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "orientation": "back"
+    },
+    {
+      "type": "asset",
+      "id": "BREAK_ROOM_VENDING_MACHINE_SIDE",
+      "file": "BREAK_ROOM_VENDING_MACHINE_SIDE.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "orientation": "side",
+      "mirrorSide": true
+    }
+  ]
+}

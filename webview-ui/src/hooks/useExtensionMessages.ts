@@ -115,6 +115,7 @@ export function useExtensionMessages(
       hueShift?: number;
       seatId?: string;
       folderName?: string;
+      appName?: string;
     }> = [];
 
     const handler = (e: MessageEvent) => {
@@ -138,7 +139,7 @@ export function useExtensionMessages(
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {
-          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName);
+          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.appName);
         }
         pendingAgents = [];
         layoutReadyRef.current = true;
@@ -152,6 +153,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentCreated') {
         const id = msg.id as number;
         const folderName = msg.folderName as string | undefined;
+        const appName = msg.appName as string | undefined;
         const isTeammate = msg.isTeammate as boolean | undefined;
         const teammateName = msg.teammateName as string | undefined;
         const teammateParentId = msg.parentAgentId as number | undefined;
@@ -167,7 +169,15 @@ export function useExtensionMessages(
           const parentCh = os.characters.get(teammateParentId);
           const palette = parentCh ? parentCh.palette : undefined;
           const hueShift = parentCh ? parentCh.hueShift : undefined;
-          os.addAgent(id, palette, hueShift, undefined, undefined, parentCh?.folderName);
+          os.addAgent(
+            id,
+            palette,
+            hueShift,
+            undefined,
+            undefined,
+            parentCh?.folderName,
+            parentCh?.appName,
+          );
           // Set team metadata on the character
           const ch = os.characters.get(id);
           if (ch) {
@@ -176,7 +186,7 @@ export function useExtensionMessages(
             ch.agentName = teammateName;
           }
         } else {
-          os.addAgent(id, undefined, undefined, undefined, undefined, folderName);
+          os.addAgent(id, undefined, undefined, undefined, undefined, folderName, appName);
         }
         saveAgentSeats(os);
       } else if (msg.type === 'agentClosed') {
@@ -212,6 +222,7 @@ export function useExtensionMessages(
           { palette?: number; hueShift?: number; seatId?: string }
         >;
         const folderNames = (msg.folderNames || {}) as Record<number, string>;
+        const appNames = (msg.appNames || {}) as Record<number, string>;
         // Buffer agents — they'll be added in layoutLoaded after seats are built
         for (const id of incoming) {
           const m = meta[id];
@@ -221,6 +232,7 @@ export function useExtensionMessages(
             hueShift: m?.hueShift,
             seatId: m?.seatId,
             folderName: folderNames[id],
+            appName: appNames[id],
           });
         }
         setAgents((prev) => {
@@ -311,6 +323,13 @@ export function useExtensionMessages(
         });
       } else if (msg.type === 'agentToolsClear') {
         const id = msg.id as number;
+        const preserveSubagentParentToolIds = new Set<string>(
+          Array.isArray(msg.preserveSubagentParentToolIds)
+            ? msg.preserveSubagentParentToolIds.filter(
+                (toolId: unknown): toolId is string => typeof toolId === 'string',
+              )
+            : [],
+        );
         setAgentTools((prev) => {
           if (!(id in prev)) return prev;
           const next = { ...prev };
@@ -330,8 +349,12 @@ export function useExtensionMessages(
         const hasInlineTeammates =
           clearCh?.teamName && clearCh?.isTeamLead && !clearCh?.teamUsesTmux;
         if (!hasInlineTeammates) {
-          os.removeAllSubagents(id);
-          setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id));
+          os.removeSubagentsExcept(id, preserveSubagentParentToolIds);
+          setSubagentCharacters((prev) =>
+            prev.filter(
+              (s) => s.parentAgentId !== id || preserveSubagentParentToolIds.has(s.parentToolId),
+            ),
+          );
         }
         os.setAgentTool(id, null);
         os.clearPermissionBubble(id);

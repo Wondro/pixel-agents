@@ -1,0 +1,44 @@
+{
+  "id": "BREAK_ROOM_TABLE",
+  "name": "Break Room Table",
+  "category": "desks",
+  "type": "group",
+  "groupType": "rotation",
+  "rotationScheme": "3-way-mirror",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 1,
+  "members": [
+    {
+      "type": "asset",
+      "id": "BREAK_ROOM_TABLE_FRONT",
+      "file": "BREAK_ROOM_TABLE_FRONT.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 2,
+      "orientation": "front"
+    },
+    {
+      "type": "asset",
+      "id": "BREAK_ROOM_TABLE_BACK",
+      "file": "BREAK_ROOM_TABLE_BACK.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 2,
+      "orientation": "back"
+    },
+    {
+      "type": "asset",
+      "id": "BREAK_ROOM_TABLE_SIDE",
+      "file": "BREAK_ROOM_TABLE_SIDE.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 2,
+      "orientation": "side",
+      "mirrorSide": true
+    }
+  ]
+}

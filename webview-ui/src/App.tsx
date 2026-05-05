@@ -21,6 +21,11 @@ import { EditorToolbar } from './office/editor/EditorToolbar.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { isRotatable } from './office/layout/furnitureCatalog.js';
 import { EditTool } from './office/types.js';
+import {
+  getAppNameFromZoneAssignmentKey,
+  getAppZoneAssignmentKey,
+  isAppZoneAssignmentKey,
+} from './office/zoneAssignments.js';
 import { isBrowserRuntime } from './runtime.js';
 import { vscode } from './vscodeApi.js';
 
@@ -150,12 +155,29 @@ function App() {
   }, []);
 
   const officeState = getOfficeState();
-  const baseAgentOptions = agents.flatMap((id) => {
+  const baseAgentOptionsByKey = new Map<
+    string,
+    { key: string; label: string; isActive: boolean }
+  >();
+  for (const id of agents) {
     const ch = officeState.characters.get(id);
-    if (ch?.isSubagent || ch?.leadAgentId !== undefined) return [];
-    const suffix = ch?.agentName ?? ch?.folderName ?? ch?.teamName;
-    return [{ id, label: suffix ? `Agent ${id} - ${suffix}` : `Agent ${id}` }];
-  });
+    if (ch?.isSubagent || ch?.leadAgentId !== undefined) continue;
+    const appName = ch?.appName ?? ch?.folderName ?? ch?.teamName;
+    const key = getAppZoneAssignmentKey(appName) ?? String(id);
+    const label = appName ?? ch?.agentName ?? ch?.teamName ?? `Agent ${id}`;
+    if (!baseAgentOptionsByKey.has(key)) {
+      baseAgentOptionsByKey.set(key, { key, label, isActive: true });
+    }
+  }
+  for (const key of Object.keys(officeState.getLayout().agentZoneAssignments ?? {})) {
+    if (!isAppZoneAssignmentKey(key) || baseAgentOptionsByKey.has(key)) continue;
+    baseAgentOptionsByKey.set(key, {
+      key,
+      label: getAppNameFromZoneAssignmentKey(key),
+      isActive: false,
+    });
+  }
+  const baseAgentOptions = [...baseAgentOptionsByKey.values()];
 
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard;

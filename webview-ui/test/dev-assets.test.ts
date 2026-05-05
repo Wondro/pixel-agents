@@ -71,6 +71,14 @@ async function verifyAssetUrls(baseUrl: string, basePath: string): Promise<void>
   assert.ok(assetIndex.walls.length > 0, 'walls index should not be empty');
   assert.ok(assetIndex.characters.length > 0, 'characters index should not be empty');
   assert.ok(catalog.length > 0, 'furniture catalog should not be empty');
+  assert.ok(
+    catalog.some((entry) => entry.id === 'BREAK_ROOM_FRIDGE_FRONT_OFF'),
+    'break-room fridge should be present in the furniture catalog',
+  );
+  assert.ok(
+    catalog.some((entry) => entry.id === 'BREAK_ROOM_CHAIR_FRONT'),
+    'break-room chair should be present in the furniture catalog',
+  );
 
   await assertUrlOk(assetUrl(baseUrl, basePath, indexedPath('floors', assetIndex.floors[0])));
   await assertUrlOk(assetUrl(baseUrl, basePath, indexedPath('walls', assetIndex.walls[0])));

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Add Asset"
+  short_description: "Generate themed Pixel Agents asset packs."
+  default_prompt: "Use the Add Asset skill to create Pixel Agents-compatible assets from the requested theme and description."
+policy:
+  allow_implicit_invocation: true

@@ -209,3 +209,44 @@ test('hook events update an existing standalone agent immediately', (t) => {
     { type: 'agentStatus', id: agent.id, status: 'waiting' },
   ]);
 });
+
+test('standalone hook waiting updates preserve spawned child visuals', (t) => {
+  const root = withTempSessions(t);
+  const messages = [];
+
+  writeSession(
+    root,
+    'parent.jsonl',
+    [
+      { type: 'session_meta', payload: { id: 'parent-session', cwd: path.join(root, 'project') } },
+      {
+        type: 'response_item',
+        payload: { type: 'function_call', name: 'spawn_agent', call_id: 'spawn-1' },
+      },
+      {
+        type: 'response_item',
+        payload: {
+          type: 'collab_agent_spawn_end',
+          call_id: 'spawn-1',
+          new_thread_id: 'child-session',
+          new_agent_nickname: 'Reviewer',
+        },
+      },
+      { type: 'response_item', payload: { type: 'task_complete' } },
+    ],
+    1,
+  );
+
+  const scanner = new CodexSessionScanner({ onMessage: (message) => messages.push(message) });
+  scanner.refresh();
+  const agent = scanner.getAgents()[0];
+  messages.length = 0;
+
+  scanner.handleHookEvent({ hook_event_name: 'Stop', session_id: 'parent-session' });
+
+  assert.deepEqual(messages[0], {
+    type: 'agentToolsClear',
+    id: agent.id,
+    preserveSubagentParentToolIds: ['spawn-1'],
+  });
+});

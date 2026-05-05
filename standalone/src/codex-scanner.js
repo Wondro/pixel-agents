@@ -69,6 +69,17 @@ function send(ws, message) {
   }
 }
 
+function agentToolsClearMessage(agentId, activeTools) {
+  const preserveSubagentParentToolIds = activeTools
+    .filter((tool) => tool.background)
+    .map((tool) => tool.toolId);
+  const message = { type: 'agentToolsClear', id: agentId };
+  if (preserveSubagentParentToolIds.length > 0) {
+    message.preserveSubagentParentToolIds = preserveSubagentParentToolIds;
+  }
+  return message;
+}
+
 export class CodexSessionScanner {
   constructor({ onMessage } = {}) {
     this.onMessage = onMessage ?? (() => {});
@@ -141,11 +152,13 @@ export class CodexSessionScanner {
   getExistingAgentsPayload(agentSeats = {}) {
     const agents = [];
     const folderNames = {};
+    const appNames = {};
     for (const agent of this.getAgents()) {
       agents.push(agent.id);
       folderNames[agent.id] = agent.folderName;
+      appNames[agent.id] = agent.folderName;
     }
-    return { type: 'existingAgents', agents, agentMeta: agentSeats, folderNames };
+    return { type: 'existingAgents', agents, agentMeta: agentSeats, folderNames, appNames };
   }
 
   sendSnapshots(ws) {
@@ -316,7 +329,7 @@ export class CodexSessionScanner {
   markAgentActive(agent) {
     agent.state.activeTools = agent.state.activeTools.filter((tool) => tool.background);
     agent.state.status = 'active';
-    this.onMessage({ type: 'agentToolsClear', id: agent.id });
+    this.onMessage(agentToolsClearMessage(agent.id, agent.state.activeTools));
     for (const tool of agent.state.activeTools) {
       this.onMessage({
         type: 'agentToolStart',
@@ -371,7 +384,7 @@ export class CodexSessionScanner {
   markAgentWaiting(agent) {
     agent.state.activeTools = agent.state.activeTools.filter((tool) => tool.background);
     agent.state.status = 'waiting';
-    this.onMessage({ type: 'agentToolsClear', id: agent.id });
+    this.onMessage(agentToolsClearMessage(agent.id, agent.state.activeTools));
     for (const tool of agent.state.activeTools) {
       this.onMessage({
         type: 'agentToolStart',
@@ -409,7 +422,12 @@ export class CodexSessionScanner {
       };
       this.agentsBySessionId.set(sessionId, agent);
       this.sessionIdByAgentId.set(agent.id, sessionId);
-      this.onMessage({ type: 'agentCreated', id: agent.id, folderName: agent.folderName });
+      this.onMessage({
+        type: 'agentCreated',
+        id: agent.id,
+        folderName: agent.folderName,
+        appName: agent.folderName,
+      });
     }
 
     agent.jsonlFile = parsed.file;

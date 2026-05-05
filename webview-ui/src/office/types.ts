@@ -121,6 +121,7 @@ export interface ZoneDefinition {
   color: string;
 }
 
+/** Zone-assignment target key -> allowed zone labels. Keys may be legacy agent ids or stable app keys. */
 export type AgentZoneAssignments = Record<string, string[]>;
 
 export interface OfficeLayout {
@@ -137,7 +138,7 @@ export interface OfficeLayout {
   zoneTiles?: Array<string | null>;
   /** Zone labels that every base agent and spawned child may enter */
   allAgentZoneLabels?: string[];
-  /** Base agent id -> allowed zone labels. Unassigned agents may use any zone */
+  /** Assignment target key -> allowed zone labels. Unassigned targets may use any zone */
   agentZoneAssignments?: AgentZoneAssignments;
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
@@ -196,6 +197,8 @@ export interface Character {
   matrixEffectSeeds: number[];
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /** Stable project/application label used for persistent zone assignments */
+  appName?: string;
 
   // -- Agent Teams --
   /** Team name this agent belongs to */

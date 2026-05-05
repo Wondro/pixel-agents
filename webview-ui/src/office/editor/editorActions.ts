@@ -114,15 +114,16 @@ export function removeZone(layout: OfficeLayout, label: string): OfficeLayout {
   return { ...layout, zones, zoneTiles, allAgentZoneLabels, agentZoneAssignments };
 }
 
-/** Toggle whether a base agent is allowed in a zone. */
+/** Toggle whether an agent/app assignment target is allowed in a zone. */
 export function setAgentZoneAssignment(
   layout: OfficeLayout,
-  agentId: number,
+  assignmentKey: string | number,
   zoneLabel: string,
   assigned: boolean,
 ): OfficeLayout {
   if (!zoneExists(layout, zoneLabel)) return layout;
-  const key = String(agentId);
+  const key = String(assignmentKey).trim();
+  if (!key) return layout;
   const agentZoneAssignments = { ...(layout.agentZoneAssignments ?? {}) };
   const current = agentZoneAssignments[key] ?? [];
   const nextLabels = assigned ? [zoneLabel] : current.filter((label) => label !== zoneLabel);

@@ -14,6 +14,7 @@ import {
 import { OfficeState } from '../src/office/engine/officeState.ts';
 import type { OfficeLayout, TileType as TileTypeVal } from '../src/office/types.ts';
 import { TILE_SIZE, TileType } from '../src/office/types.ts';
+import { getAppZoneAssignmentKey } from '../src/office/zoneAssignments.ts';
 
 function makeLayout(cols = 4, rows = 3): OfficeLayout {
   const tiles = new Array<TileTypeVal>(cols * rows).fill(TileType.FLOOR_1);
@@ -86,6 +87,60 @@ test('base agents and spawned subagents are limited to assigned zone or rest til
   assert.equal(officeState.isTileAllowedForAgent(subagentId, 2, 1), false);
 });
 
+test('app zone assignment persists across new runtime agent ids', () => {
+  const appKey = getAppZoneAssignmentKey('Daedum-agent-team');
+  assert.ok(appKey);
+
+  let layout = addZone(makeLayout(), 'Alpha', ZONE_DEFAULT_COLORS[0]);
+  layout = addZone(layout, 'Beta', ZONE_DEFAULT_COLORS[1]);
+  layout = paintZone(layout, 1, 1, 'Alpha');
+  layout = paintZone(layout, 2, 1, 'Beta');
+  layout = setAgentZoneAssignment(layout, appKey, 'Alpha', true);
+
+  const officeState = new OfficeState(layout);
+  officeState.addAgent(42, 0, 0, undefined, true, undefined, 'Daedum-agent-team');
+
+  assert.equal(officeState.isTileAllowedForAgent(42, 1, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(42, 0, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(42, 2, 1), false);
+
+  const subagentId = officeState.addSubagent(42, 'spawn-1');
+  assert.equal(officeState.isTileAllowedForAgent(subagentId, 1, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(subagentId, 2, 1), false);
+
+  officeState.removeAgent(42);
+  officeState.addAgent(99, 0, 0, undefined, true, undefined, 'Daedum-agent-team');
+  assert.equal(officeState.isTileAllowedForAgent(99, 1, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(99, 2, 1), false);
+});
+
+test('team name can provide the persistent app zone key when no app name is present', () => {
+  const appKey = getAppZoneAssignmentKey('Daedum-agent-team');
+  assert.ok(appKey);
+
+  let layout = addZone(makeLayout(), 'Alpha', ZONE_DEFAULT_COLORS[0]);
+  layout = addZone(layout, 'Beta', ZONE_DEFAULT_COLORS[1]);
+  layout = paintZone(layout, 1, 1, 'Alpha');
+  layout = paintZone(layout, 2, 1, 'Beta');
+  layout = setAgentZoneAssignment(layout, appKey, 'Alpha', true);
+
+  const officeState = new OfficeState(layout);
+  officeState.addAgent(7, 0, 0, undefined, true);
+  const agent = officeState.characters.get(7);
+  assert.ok(agent);
+  agent.tileCol = 2;
+  agent.tileRow = 1;
+  agent.x = agent.tileCol * TILE_SIZE + TILE_SIZE / 2;
+  agent.y = agent.tileRow * TILE_SIZE + TILE_SIZE / 2;
+
+  officeState.setTeamInfo(7, 'Daedum-agent-team', undefined, true);
+
+  assert.equal(agent.appName, 'Daedum-agent-team');
+  assert.equal(officeState.isTileAllowedForAgent(7, 1, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(7, 2, 1), false);
+  assert.notDeepEqual({ col: agent.tileCol, row: agent.tileRow }, { col: 2, row: 1 });
+});
+
 test('all-agent zones are shared by constrained base agents and subagents', () => {
   let layout = addZone(makeLayout(5, 3), 'Alpha', ZONE_DEFAULT_COLORS[0]);
   layout = addZone(layout, 'Beta', ZONE_DEFAULT_COLORS[1]);
@@ -115,4 +170,21 @@ test('all-agent zones are shared by constrained base agents and subagents', () =
   const subagentId = officeState.addSubagent(1, 'task-2');
   assert.equal(officeState.isTileAllowedForAgent(subagentId, 3, 1), true);
   assert.equal(officeState.isTileAllowedForAgent(subagentId, 2, 1), false);
+});
+
+test('subagent clear can preserve background spawned agents', () => {
+  const officeState = new OfficeState(makeLayout());
+  officeState.addAgent(1, 0, 0, undefined, true);
+
+  const backgroundSubagentId = officeState.addSubagent(1, 'spawn-agent');
+  const foregroundSubagentId = officeState.addSubagent(1, 'temporary-task');
+
+  officeState.removeSubagentsExcept(1, new Set(['spawn-agent']));
+
+  assert.equal(officeState.getSubagentId(1, 'spawn-agent'), backgroundSubagentId);
+  assert.equal(officeState.characters.get(backgroundSubagentId)?.matrixEffect, 'spawn');
+  assert.equal(officeState.getSubagentId(1, 'temporary-task'), null);
+  assert.equal(officeState.characters.get(foregroundSubagentId)?.matrixEffect, 'despawn');
+
+  assert.equal(officeState.addSubagent(1, 'spawn-agent'), backgroundSubagentId);
 });

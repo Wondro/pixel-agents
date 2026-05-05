@@ -56,7 +56,11 @@ interface EditorActions {
   handleSelectedZoneChange: (label: string | null) => void;
   handleAddZone: (label: string, color: string) => void;
   handleRemoveZone: (label: string) => void;
-  handleAgentZoneAssignmentChange: (agentId: number, zoneLabel: string, assigned: boolean) => void;
+  handleAgentZoneAssignmentChange: (
+    assignmentKey: string,
+    zoneLabel: string,
+    assigned: boolean,
+  ) => void;
   handleAllAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
   handleDeleteSelected: () => void;
   handleRotateSelected: () => void;
@@ -308,10 +312,10 @@ export function useEditorActions(
   );
 
   const handleAgentZoneAssignmentChange = useCallback(
-    (agentId: number, zoneLabel: string, assigned: boolean) => {
+    (assignmentKey: string, zoneLabel: string, assigned: boolean) => {
       const os = getOfficeState();
       const layout = os.getLayout();
-      const newLayout = setAgentZoneAssignment(layout, agentId, zoneLabel, assigned);
+      const newLayout = setAgentZoneAssignment(layout, assignmentKey, zoneLabel, assigned);
       if (newLayout !== layout) {
         applyEdit(newLayout);
       }

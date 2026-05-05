@@ -19,8 +19,9 @@ import { EditTool } from '../types.js';
 import { getWallSetCount, getWallSetPreviewSprite } from '../wallTiles.js';
 
 export interface BaseAgentOption {
-  id: number;
+  key: string;
   label: string;
+  isActive: boolean;
 }
 
 interface EditorToolbarProps {
@@ -47,7 +48,11 @@ interface EditorToolbarProps {
   onSelectedZoneChange: (label: string | null) => void;
   onAddZone: (label: string, color: string) => void;
   onRemoveZone: (label: string) => void;
-  onAgentZoneAssignmentChange: (agentId: number, zoneLabel: string, assigned: boolean) => void;
+  onAgentZoneAssignmentChange: (
+    assignmentKey: string,
+    zoneLabel: string,
+    assigned: boolean,
+  ) => void;
   onAllAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
   loadedAssets?: LoadedAssetData;
 }
@@ -141,8 +146,8 @@ export function EditorToolbar({
     setNewZoneName('');
   };
 
-  const assignedToZone = (agentId: number, label: string) =>
-    (agentZoneAssignments[String(agentId)] ?? []).includes(label);
+  const assignedToZone = (assignmentKey: string, label: string) =>
+    (agentZoneAssignments[assignmentKey] ?? []).includes(label);
   const allAgentsAssignedToZone = (label: string) => allAgentZoneLabels.includes(label);
 
   return (
@@ -328,10 +333,10 @@ export function EditorToolbar({
               {zones.map((zone) => {
                 const isAllAgentsZone = allAgentsAssignedToZone(zone.label);
                 const assignedAgents = baseAgents.filter((agent) =>
-                  assignedToZone(agent.id, zone.label),
+                  assignedToZone(agent.key, zone.label),
                 );
                 const availableAgents = baseAgents.filter(
-                  (agent) => !isAllAgentsZone && !assignedToZone(agent.id, zone.label),
+                  (agent) => !isAllAgentsZone && !assignedToZone(agent.key, zone.label),
                 );
                 return (
                   <div
@@ -387,16 +392,19 @@ export function EditorToolbar({
 
                       {assignedAgents.map((agent) => (
                         <div
-                          key={agent.id}
+                          key={agent.key}
                           className="flex items-center gap-4 bg-btn-bg border border-border px-4 py-2"
                         >
                           <span className="text-xs truncate flex-1" title={agent.label}>
                             {agent.label}
+                            {!agent.isActive && ' (inactive)'}
                           </span>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => onAgentZoneAssignmentChange(agent.id, zone.label, false)}
+                            onClick={() =>
+                              onAgentZoneAssignmentChange(agent.key, zone.label, false)
+                            }
                             title="Remove agent"
                             className="px-3"
                           >
@@ -412,9 +420,9 @@ export function EditorToolbar({
                             onAllAgentsZoneAssignmentChange(zone.label, true);
                             return;
                           }
-                          const id = Number(e.target.value);
-                          if (Number.isFinite(id)) {
-                            onAgentZoneAssignmentChange(id, zone.label, true);
+                          const assignmentKey = e.target.value;
+                          if (assignmentKey) {
+                            onAgentZoneAssignmentChange(assignmentKey, zone.label, true);
                           }
                         }}
                         className="bg-bg border-2 border-border text-text px-4 py-2 text-sm outline-none"
@@ -430,8 +438,9 @@ export function EditorToolbar({
                         </option>
                         {!isAllAgentsZone && <option value="all">All agents</option>}
                         {availableAgents.map((agent) => (
-                          <option key={agent.id} value={agent.id}>
+                          <option key={agent.key} value={agent.key}>
                             {agent.label}
+                            {!agent.isActive && ' (inactive)'}
                           </option>
                         ))}
                       </select>
@@ -445,9 +454,18 @@ export function EditorToolbar({
       )}
 
       {isFurnitureActive && (
-        <div className="flex flex-col-reverse gap-4">
+        <div className="flex flex-col-reverse gap-4 w-[360px] max-w-[calc(100vw-40px)]">
           {/* Category tabs + Pick — just above tool row */}
-          <div className="flex gap-4 flex-wrap items-center">
+          <div className="flex flex-col-reverse gap-3 overflow-y-auto max-h-[30vh] pr-2">
+            <Button
+              variant={activeTool === EditTool.FURNITURE_PICK ? 'active' : 'ghost'}
+              size="sm"
+              onClick={() => onToolChange(EditTool.FURNITURE_PICK)}
+              title="Pick furniture type from placed item"
+            >
+              Pick
+            </Button>
+            <div className="h-[1px] bg-white/15 shrink-0" />
             {getActiveCategories().map((cat) => (
               <Button
                 key={cat.id}
@@ -458,36 +476,44 @@ export function EditorToolbar({
                 {cat.label}
               </Button>
             ))}
-            <div className="w-[1px] h-14 bg-white/15 mx-2 shrink-0" />
-            <Button
-              variant={activeTool === EditTool.FURNITURE_PICK ? 'active' : 'ghost'}
-              size="sm"
-              onClick={() => onToolChange(EditTool.FURNITURE_PICK)}
-              title="Pick furniture type from placed item"
-            >
-              Pick
-            </Button>
           </div>
-          {/* Furniture items — single-row horizontal carousel at 2x */}
-          <div className="carousel">
-            {categoryItems.map((entry) => (
-              <ItemSelect
-                key={entry.type}
-                width={thumbSize}
-                height={thumbSize}
-                selected={selectedFurnitureType === entry.type}
-                onClick={() => onFurnitureTypeChange(entry.type)}
-                title={entry.label}
-                deps={[entry.type, entry.sprite]}
-                draw={(ctx, w, h) => {
-                  const cached = getCachedSprite(entry.sprite, 2);
-                  const scale = Math.min(w / cached.width, h / cached.height) * 0.85;
-                  const dw = cached.width * scale;
-                  const dh = cached.height * scale;
-                  ctx.drawImage(cached, (w - dw) / 2, (h - dh) / 2, dw, dh);
-                }}
-              />
-            ))}
+          {/* Furniture items — vertical scroll list at 2x */}
+          <div className="flex flex-col-reverse gap-3 overflow-y-auto max-h-[50vh] pr-2">
+            {categoryItems.map((entry) => {
+              const isSelected = selectedFurnitureType === entry.type;
+              return (
+                <div
+                  key={entry.type}
+                  className={`flex min-h-[58px] w-full items-center gap-4 border-2 bg-bg-dark px-4 py-3 ${
+                    isSelected ? 'border-accent' : 'border-border'
+                  }`}
+                >
+                  <ItemSelect
+                    width={thumbSize}
+                    height={thumbSize}
+                    selected={isSelected}
+                    onClick={() => onFurnitureTypeChange(entry.type)}
+                    title={entry.label}
+                    deps={[entry.type, entry.sprite]}
+                    draw={(ctx, w, h) => {
+                      const cached = getCachedSprite(entry.sprite, 2);
+                      const scale = Math.min(w / cached.width, h / cached.height) * 0.85;
+                      const dw = cached.width * scale;
+                      const dh = cached.height * scale;
+                      ctx.drawImage(cached, (w - dw) / 2, (h - dh) / 2, dw, dh);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onFurnitureTypeChange(entry.type)}
+                    className="min-w-0 flex-1 cursor-pointer truncate text-left text-sm text-text"
+                    title={entry.label}
+                  >
+                    {entry.label}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
