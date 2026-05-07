@@ -203,7 +203,11 @@ export class OfficeState {
     return keys;
   }
 
-  private getAssignedZoneLabelsForBaseId(baseAgentId: number, appName?: string): string[] {
+  private getKnownZoneLabels(): Set<string> {
+    return new Set((this.layout.zones ?? []).map((zone) => zone.label));
+  }
+
+  private getExplicitAssignedZoneLabelsForBaseId(baseAgentId: number, appName?: string): string[] {
     const knownZones = new Set((this.layout.zones ?? []).map((zone) => zone.label));
     for (const key of this.getAssignmentKeysForBaseId(baseAgentId, appName)) {
       const labels = this.layout.agentZoneAssignments?.[key] ?? [];
@@ -213,8 +217,22 @@ export class OfficeState {
     return [];
   }
 
+  private getUnassignedAgentZoneLabels(): string[] {
+    const knownZones = this.getKnownZoneLabels();
+    const allAgentZoneLabels = new Set(this.getAllAgentZoneLabels());
+    return (this.layout.unassignedAgentZoneLabels ?? []).filter(
+      (label) => knownZones.has(label) && !allAgentZoneLabels.has(label),
+    );
+  }
+
+  private getAssignedZoneLabelsForBaseId(baseAgentId: number, appName?: string): string[] {
+    const explicitLabels = this.getExplicitAssignedZoneLabelsForBaseId(baseAgentId, appName);
+    if (explicitLabels.length > 0) return explicitLabels;
+    return this.getUnassignedAgentZoneLabels();
+  }
+
   private getAllAgentZoneLabels(): string[] {
-    const knownZones = new Set((this.layout.zones ?? []).map((zone) => zone.label));
+    const knownZones = this.getKnownZoneLabels();
     return (this.layout.allAgentZoneLabels ?? []).filter((label) => knownZones.has(label));
   }
 
@@ -305,18 +323,7 @@ export class OfficeState {
           ? this.getAssignedZoneLabelsForCharacter(agent)
           : [];
     const isConstrained = labels.length > 0;
-
-    // Build set of tiles occupied by electronics (PCs, monitors, etc.)
-    const electronicsTiles = new Set<string>();
-    for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.type);
-      if (!entry || entry.category !== 'electronics') continue;
-      for (let dr = 0; dr < entry.footprintH; dr++) {
-        for (let dc = 0; dc < entry.footprintW; dc++) {
-          electronicsTiles.add(`${item.col + dc},${item.row + dr}`);
-        }
-      }
-    }
+    const electronicsTiles = this.getElectronicsTiles();
 
     // Collect free seats, split into those facing electronics and zone priority.
     const pcSeats: string[] = [];
@@ -336,36 +343,7 @@ export class OfficeState {
         continue;
       }
 
-      // Check if this seat faces electronics (same logic as auto-state detection)
-      let facesPC = false;
-      const dCol =
-        seat.facingDir === Direction.RIGHT ? 1 : seat.facingDir === Direction.LEFT ? -1 : 0;
-      const dRow = seat.facingDir === Direction.DOWN ? 1 : seat.facingDir === Direction.UP ? -1 : 0;
-      for (let d = 1; d <= AUTO_ON_FACING_DEPTH && !facesPC; d++) {
-        const tileCol = seat.seatCol + dCol * d;
-        const tileRow = seat.seatRow + dRow * d;
-        if (electronicsTiles.has(`${tileCol},${tileRow}`)) {
-          facesPC = true;
-          break;
-        }
-        if (dCol !== 0) {
-          if (
-            electronicsTiles.has(`${tileCol},${tileRow - 1}`) ||
-            electronicsTiles.has(`${tileCol},${tileRow + 1}`)
-          ) {
-            facesPC = true;
-            break;
-          }
-        } else {
-          if (
-            electronicsTiles.has(`${tileCol - 1},${tileRow}`) ||
-            electronicsTiles.has(`${tileCol + 1},${tileRow}`)
-          ) {
-            facesPC = true;
-            break;
-          }
-        }
-      }
+      const facesPC = this.seatFacesElectronics(seat, electronicsTiles);
       if (isConstrained) {
         if (zoneLabel === null) {
           (facesPC ? restPcSeats : restOtherSeats).push(uid);
@@ -399,6 +377,104 @@ export class OfficeState {
     return null;
   }
 
+  private getElectronicsTiles(): Set<string> {
+    const electronicsTiles = new Set<string>();
+    for (const item of this.layout.furniture) {
+      const entry = getCatalogEntry(item.type);
+      if (!entry || entry.category !== 'electronics') continue;
+      for (let dr = 0; dr < entry.footprintH; dr++) {
+        for (let dc = 0; dc < entry.footprintW; dc++) {
+          electronicsTiles.add(`${item.col + dc},${item.row + dr}`);
+        }
+      }
+    }
+    return electronicsTiles;
+  }
+
+  private seatFacesElectronics(seat: Seat, electronicsTiles: Set<string>): boolean {
+    const dCol =
+      seat.facingDir === Direction.RIGHT ? 1 : seat.facingDir === Direction.LEFT ? -1 : 0;
+    const dRow = seat.facingDir === Direction.DOWN ? 1 : seat.facingDir === Direction.UP ? -1 : 0;
+    for (let d = 1; d <= AUTO_ON_FACING_DEPTH; d++) {
+      const tileCol = seat.seatCol + dCol * d;
+      const tileRow = seat.seatRow + dRow * d;
+      if (electronicsTiles.has(`${tileCol},${tileRow}`)) {
+        return true;
+      }
+      if (dCol !== 0) {
+        if (
+          electronicsTiles.has(`${tileCol},${tileRow - 1}`) ||
+          electronicsTiles.has(`${tileCol},${tileRow + 1}`)
+        ) {
+          return true;
+        }
+      } else if (
+        electronicsTiles.has(`${tileCol - 1},${tileRow}`) ||
+        electronicsTiles.has(`${tileCol + 1},${tileRow}`)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private findNearestFreeSeat(agent: Character): string | null {
+    const labels = this.getAssignedZoneLabelsForCharacter(agent);
+    const isConstrained = labels.length > 0;
+    const allAgentZoneLabels = this.getAllAgentZoneLabels();
+    const electronicsTiles = this.getElectronicsTiles();
+
+    const candidates: Array<{
+      uid: string;
+      seat: Seat;
+      facesPC: boolean;
+      zoneRank: number;
+      distance: number;
+    }> = [];
+
+    for (const [uid, seat] of this.seats) {
+      if (seat.assigned) continue;
+      const zoneLabel = this.getZoneLabelAt(seat.seatCol, seat.seatRow);
+      const isSharedZone = zoneLabel !== null && allAgentZoneLabels.includes(zoneLabel);
+      if (isConstrained && zoneLabel !== null && !labels.includes(zoneLabel) && !isSharedZone) {
+        continue;
+      }
+      if (!this.tileAllowedForAssignments(labels, seat.seatCol, seat.seatRow)) continue;
+
+      let zoneRank = 0;
+      if (isConstrained) {
+        if (zoneLabel === null) {
+          zoneRank = 1;
+        } else if (isSharedZone) {
+          zoneRank = 2;
+        }
+      }
+
+      candidates.push({
+        uid,
+        seat,
+        facesPC: this.seatFacesElectronics(seat, electronicsTiles),
+        zoneRank,
+        distance: Math.abs(seat.seatCol - agent.tileCol) + Math.abs(seat.seatRow - agent.tileRow),
+      });
+    }
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => {
+      const zoneDelta = a.zoneRank - b.zoneRank;
+      if (zoneDelta !== 0) return zoneDelta;
+      if (a.facesPC !== b.facesPC) return a.facesPC ? -1 : 1;
+      const distanceDelta = a.distance - b.distance;
+      if (distanceDelta !== 0) return distanceDelta;
+      const rowDelta = a.seat.seatRow - b.seat.seatRow;
+      if (rowDelta !== 0) return rowDelta;
+      const colDelta = a.seat.seatCol - b.seat.seatCol;
+      if (colDelta !== 0) return colDelta;
+      return a.uid.localeCompare(b.uid);
+    });
+    return candidates[0].uid;
+  }
+
   /**
    * Pick a diverse palette for a new agent based on currently active agents.
    * First 6 agents each get a unique skin (random order). Beyond 6, skins
@@ -422,6 +498,33 @@ export class OfficeState {
     // First round (minCount === 0): no hue shift. Subsequent rounds: random ≥45°.
     let hueShift = 0;
     if (minCount > 0) {
+      hueShift = HUE_SHIFT_MIN_DEG + Math.floor(Math.random() * HUE_SHIFT_RANGE_DEG);
+    }
+    return { palette, hueShift };
+  }
+
+  private pickSubagentPalette(parentCh?: Character): { palette: number; hueShift: number } {
+    const paletteCount = Math.max(1, getLoadedCharacterCount());
+    const counts = new Array(paletteCount).fill(0) as number[];
+    for (const ch of this.characters.values()) {
+      if (ch.palette >= 0 && ch.palette < paletteCount) counts[ch.palette]++;
+    }
+
+    const candidatePalettes: number[] = [];
+    for (let i = 0; i < paletteCount; i++) {
+      if (paletteCount > 1 && parentCh && i === parentCh.palette) continue;
+      candidatePalettes.push(i);
+    }
+
+    const pool =
+      candidatePalettes.length > 0
+        ? candidatePalettes
+        : [Math.max(0, Math.min(parentCh?.palette ?? 0, paletteCount - 1))];
+    const minCount = Math.min(...pool.map((palette) => counts[palette] ?? 0));
+    const available = pool.filter((palette) => (counts[palette] ?? 0) === minCount);
+    const palette = available[Math.floor(Math.random() * available.length)];
+    let hueShift = 0;
+    if ((counts[palette] ?? 0) > 0) {
       hueShift = HUE_SHIFT_MIN_DEG + Math.floor(Math.random() * HUE_SHIFT_RANGE_DEG);
     }
     return { palette, hueShift };
@@ -611,50 +714,57 @@ export class OfficeState {
     return true;
   }
 
-  /** Create a sub-agent character with the parent's palette. Returns the sub-agent ID. */
+  /** Create a sub-agent character. Returns the sub-agent ID. */
   addSubagent(parentAgentId: number, parentToolId: string): number {
     const key = `${parentAgentId}:${parentToolId}`;
     if (this.subagentIdMap.has(key)) return this.subagentIdMap.get(key)!;
 
     const id = this.nextSubagentId--;
     const parentCh = this.characters.get(parentAgentId);
-    const palette = parentCh ? parentCh.palette : 0;
-    const hueShift = parentCh ? parentCh.hueShift : 0;
+    const { palette, hueShift } = this.pickSubagentPalette(parentCh);
 
-    // Find the closest walkable tile to the parent, avoiding tiles occupied by other characters
     const parentCol = parentCh ? parentCh.tileCol : 0;
     const parentRow = parentCh ? parentCh.tileRow : 0;
-    const dist = (c: number, r: number) => Math.abs(c - parentCol) + Math.abs(r - parentRow);
+    const seatId = parentCh ? this.findNearestFreeSeat(parentCh) : null;
 
-    // Build set of tiles occupied by existing characters
-    const occupiedTiles = new Set<string>();
-    for (const [, other] of this.characters) {
-      occupiedTiles.add(`${other.tileCol},${other.tileRow}`);
-    }
+    let ch: Character;
+    if (seatId) {
+      const seat = this.seats.get(seatId)!;
+      seat.assigned = true;
+      ch = createCharacter(id, palette, seatId, seat, hueShift);
+    } else {
+      // No free workstation: find the closest walkable tile to the parent.
+      const dist = (c: number, r: number) => Math.abs(c - parentCol) + Math.abs(r - parentRow);
 
-    let spawn = { col: parentCol, row: parentRow };
-    const walkableTiles = this.getAllowedWalkableTilesForAgentId(parentAgentId);
-    if (walkableTiles.length > 0) {
-      let closest = walkableTiles[0];
-      let closestDist = Infinity;
-      for (const tile of walkableTiles) {
-        if (occupiedTiles.has(`${tile.col},${tile.row}`)) continue;
-        const d = dist(tile.col, tile.row);
-        if (d < closestDist) {
-          closest = tile;
-          closestDist = d;
-        }
+      const occupiedTiles = new Set<string>();
+      for (const [, other] of this.characters) {
+        occupiedTiles.add(`${other.tileCol},${other.tileRow}`);
       }
-      spawn = closest;
+
+      let spawn = { col: parentCol, row: parentRow };
+      const walkableTiles = this.getAllowedWalkableTilesForAgentId(parentAgentId);
+      if (walkableTiles.length > 0) {
+        let closest = walkableTiles[0];
+        let closestDist = Infinity;
+        for (const tile of walkableTiles) {
+          if (occupiedTiles.has(`${tile.col},${tile.row}`)) continue;
+          const d = dist(tile.col, tile.row);
+          if (d < closestDist) {
+            closest = tile;
+            closestDist = d;
+          }
+        }
+        spawn = closest;
+      }
+
+      ch = createCharacter(id, palette, null, null, hueShift);
+      ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
+      ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
+      ch.tileCol = spawn.col;
+      ch.tileRow = spawn.row;
+      if (parentCh) ch.dir = parentCh.dir;
     }
 
-    const ch = createCharacter(id, palette, null, null, hueShift);
-    ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
-    ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
-    ch.tileCol = spawn.col;
-    ch.tileRow = spawn.row;
-    // Face the same direction as the parent agent
-    if (parentCh) ch.dir = parentCh.dir;
     ch.isSubagent = true;
     ch.parentAgentId = parentAgentId;
     ch.matrixEffect = 'spawn';

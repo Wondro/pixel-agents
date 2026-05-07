@@ -279,6 +279,7 @@ export function createDefaultLayout(): OfficeLayout {
     zones: [],
     zoneTiles: new Array(tiles.length).fill(null),
     allAgentZoneLabels: [],
+    unassignedAgentZoneLabels: [],
     agentZoneAssignments: {},
   };
 }
@@ -338,6 +339,9 @@ function normalizeLayoutZones(layout: OfficeLayout): OfficeLayout {
     labels.has(label),
   );
   const allAgentZoneLabelSet = new Set(allAgentZoneLabels);
+  const unassignedAgentZoneLabels = Array.from(
+    new Set(layout.unassignedAgentZoneLabels ?? []),
+  ).filter((label) => labels.has(label) && !allAgentZoneLabelSet.has(label));
 
   const agentZoneAssignments: Record<string, string[]> = {};
   for (const [agentId, assignedLabels] of Object.entries(layout.agentZoneAssignments ?? {})) {
@@ -349,7 +353,14 @@ function normalizeLayoutZones(layout: OfficeLayout): OfficeLayout {
     }
   }
 
-  return { ...layout, zones, zoneTiles, allAgentZoneLabels, agentZoneAssignments };
+  return {
+    ...layout,
+    zones,
+    zoneTiles,
+    allAgentZoneLabels,
+    unassignedAgentZoneLabels,
+    agentZoneAssignments,
+  };
 }
 
 /** Deserialize layout from JSON string, migrating old tile types if needed

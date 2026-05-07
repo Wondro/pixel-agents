@@ -36,6 +36,7 @@ interface EditorToolbarProps {
   selectedWallSet: number;
   zones: ZoneDefinition[];
   allAgentZoneLabels: string[];
+  unassignedAgentZoneLabels: string[];
   agentZoneAssignments: AgentZoneAssignments;
   baseAgents: BaseAgentOption[];
   onToolChange: (tool: EditTool) => void;
@@ -54,6 +55,7 @@ interface EditorToolbarProps {
     assigned: boolean,
   ) => void;
   onAllAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
+  onUnassignedAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
   loadedAssets?: LoadedAssetData;
 }
 
@@ -73,6 +75,7 @@ export function EditorToolbar({
   selectedWallSet,
   zones,
   allAgentZoneLabels,
+  unassignedAgentZoneLabels,
   agentZoneAssignments,
   baseAgents,
   onToolChange,
@@ -87,6 +90,7 @@ export function EditorToolbar({
   onRemoveZone,
   onAgentZoneAssignmentChange,
   onAllAgentsZoneAssignmentChange,
+  onUnassignedAgentsZoneAssignmentChange,
   loadedAssets,
 }: EditorToolbarProps) {
   const [activeCategory, setActiveCategory] = useState<FurnitureCategory>('desks');
@@ -149,6 +153,8 @@ export function EditorToolbar({
   const assignedToZone = (assignmentKey: string, label: string) =>
     (agentZoneAssignments[assignmentKey] ?? []).includes(label);
   const allAgentsAssignedToZone = (label: string) => allAgentZoneLabels.includes(label);
+  const unassignedAgentsAssignedToZone = (label: string) =>
+    unassignedAgentZoneLabels.includes(label);
 
   return (
     <div className="absolute bottom-76 left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]">
@@ -332,6 +338,7 @@ export function EditorToolbar({
             <div className="flex flex-col-reverse gap-4 overflow-y-auto max-h-[50vh] pr-2">
               {zones.map((zone) => {
                 const isAllAgentsZone = allAgentsAssignedToZone(zone.label);
+                const isUnassignedAgentsZone = unassignedAgentsAssignedToZone(zone.label);
                 const assignedAgents = baseAgents.filter((agent) =>
                   assignedToZone(agent.key, zone.label),
                 );
@@ -390,6 +397,25 @@ export function EditorToolbar({
                         </div>
                       )}
 
+                      {isUnassignedAgentsZone && (
+                        <div className="flex items-center gap-4 bg-btn-bg border border-border px-4 py-2">
+                          <span className="text-xs truncate flex-1" title="Unassigned agents">
+                            Unassigned agents
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              onUnassignedAgentsZoneAssignmentChange(zone.label, false)
+                            }
+                            title="Remove unassigned agents"
+                            className="px-3"
+                          >
+                            X
+                          </Button>
+                        </div>
+                      )}
+
                       {assignedAgents.map((agent) => (
                         <div
                           key={agent.key}
@@ -420,23 +446,30 @@ export function EditorToolbar({
                             onAllAgentsZoneAssignmentChange(zone.label, true);
                             return;
                           }
+                          if (e.target.value === 'unassigned') {
+                            onUnassignedAgentsZoneAssignmentChange(zone.label, true);
+                            return;
+                          }
                           const assignmentKey = e.target.value;
                           if (assignmentKey) {
                             onAgentZoneAssignmentChange(assignmentKey, zone.label, true);
                           }
                         }}
                         className="bg-bg border-2 border-border text-text px-4 py-2 text-sm outline-none"
-                        disabled={isAllAgentsZone || availableAgents.length === 0}
+                        disabled={isAllAgentsZone}
                         title="Assign agent"
                       >
                         <option value="">
                           {isAllAgentsZone
                             ? 'All agents'
-                            : availableAgents.length === 0
-                              ? 'No agents'
+                            : isUnassignedAgentsZone && availableAgents.length === 0
+                              ? 'Unassigned agents'
                               : 'Assign agent'}
                         </option>
                         {!isAllAgentsZone && <option value="all">All agents</option>}
+                        {!isAllAgentsZone && !isUnassignedAgentsZone && (
+                          <option value="unassigned">Unassigned agents</option>
+                        )}
                         {availableAgents.map((agent) => (
                           <option key={agent.key} value={agent.key}>
                             {agent.label}

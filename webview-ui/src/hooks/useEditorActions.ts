@@ -17,6 +17,7 @@ import {
   rotateFurniture,
   setAgentZoneAssignment,
   setAllAgentsZoneAssignment,
+  setUnassignedAgentsZoneAssignment,
   toggleFurnitureState,
 } from '../office/editor/editorActions.js';
 import type { EditorState } from '../office/editor/editorState.js';
@@ -62,6 +63,7 @@ interface EditorActions {
     assigned: boolean,
   ) => void;
   handleAllAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
+  handleUnassignedAgentsZoneAssignmentChange: (zoneLabel: string, assigned: boolean) => void;
   handleDeleteSelected: () => void;
   handleRotateSelected: () => void;
   handleToggleState: () => void;
@@ -328,6 +330,18 @@ export function useEditorActions(
       const os = getOfficeState();
       const layout = os.getLayout();
       const newLayout = setAllAgentsZoneAssignment(layout, zoneLabel, assigned);
+      if (newLayout !== layout) {
+        applyEdit(newLayout);
+      }
+    },
+    [getOfficeState, applyEdit],
+  );
+
+  const handleUnassignedAgentsZoneAssignmentChange = useCallback(
+    (zoneLabel: string, assigned: boolean) => {
+      const os = getOfficeState();
+      const layout = os.getLayout();
+      const newLayout = setUnassignedAgentsZoneAssignment(layout, zoneLabel, assigned);
       if (newLayout !== layout) {
         applyEdit(newLayout);
       }
@@ -726,6 +740,7 @@ export function useEditorActions(
     handleRemoveZone,
     handleAgentZoneAssignmentChange,
     handleAllAgentsZoneAssignmentChange,
+    handleUnassignedAgentsZoneAssignmentChange,
     handleDeleteSelected,
     handleRotateSelected,
     handleToggleState,

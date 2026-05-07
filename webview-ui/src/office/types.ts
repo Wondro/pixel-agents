@@ -138,6 +138,8 @@ export interface OfficeLayout {
   zoneTiles?: Array<string | null>;
   /** Zone labels that every base agent and spawned child may enter */
   allAgentZoneLabels?: string[];
+  /** Zone labels used by base agents and spawned children with no explicit app/agent assignment */
+  unassignedAgentZoneLabels?: string[];
   /** Assignment target key -> allowed zone labels. Unassigned targets may use any zone */
   agentZoneAssignments?: AgentZoneAssignments;
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */

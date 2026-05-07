@@ -90,6 +90,7 @@ export function addZone(layout: OfficeLayout, label: string, color: string): Off
     zones: [...(layout.zones ?? []), zone],
     zoneTiles: getZoneTiles(layout),
     allAgentZoneLabels: [...(layout.allAgentZoneLabels ?? [])],
+    unassignedAgentZoneLabels: [...(layout.unassignedAgentZoneLabels ?? [])],
     agentZoneAssignments: { ...(layout.agentZoneAssignments ?? {}) },
   };
 }
@@ -104,6 +105,9 @@ export function removeZone(layout: OfficeLayout, label: string): OfficeLayout {
   const allAgentZoneLabels = (layout.allAgentZoneLabels ?? []).filter(
     (assignedLabel) => assignedLabel !== label,
   );
+  const unassignedAgentZoneLabels = (layout.unassignedAgentZoneLabels ?? []).filter(
+    (assignedLabel) => assignedLabel !== label,
+  );
   const agentZoneAssignments: Record<string, string[]> = {};
   for (const [agentId, labels] of Object.entries(layout.agentZoneAssignments ?? {})) {
     const nextLabels = labels.filter((assignedLabel) => assignedLabel !== label);
@@ -111,7 +115,14 @@ export function removeZone(layout: OfficeLayout, label: string): OfficeLayout {
       agentZoneAssignments[agentId] = nextLabels;
     }
   }
-  return { ...layout, zones, zoneTiles, allAgentZoneLabels, agentZoneAssignments };
+  return {
+    ...layout,
+    zones,
+    zoneTiles,
+    allAgentZoneLabels,
+    unassignedAgentZoneLabels,
+    agentZoneAssignments,
+  };
 }
 
 /** Toggle whether an agent/app assignment target is allowed in a zone. */
@@ -152,6 +163,10 @@ export function setAllAgentsZoneAssignment(
   const allAgentZoneLabels = assigned
     ? Array.from(new Set([...current, zoneLabel]))
     : current.filter((label) => label !== zoneLabel);
+  const currentUnassigned = layout.unassignedAgentZoneLabels ?? [];
+  const unassignedAgentZoneLabels = assigned
+    ? currentUnassigned.filter((label) => label !== zoneLabel)
+    : currentUnassigned;
 
   const agentZoneAssignments = { ...(layout.agentZoneAssignments ?? {}) };
   let agentAssignmentsChanged = false;
@@ -169,12 +184,38 @@ export function setAllAgentsZoneAssignment(
 
   if (
     !agentAssignmentsChanged &&
+    unassignedAgentZoneLabels.length === currentUnassigned.length &&
     allAgentZoneLabels.length === current.length &&
     allAgentZoneLabels.every((label, index) => label === current[index])
   ) {
     return layout;
   }
-  return { ...layout, allAgentZoneLabels, agentZoneAssignments };
+  return { ...layout, allAgentZoneLabels, unassignedAgentZoneLabels, agentZoneAssignments };
+}
+
+/** Toggle the fallback zone for agents/apps with no explicit assignment. */
+export function setUnassignedAgentsZoneAssignment(
+  layout: OfficeLayout,
+  zoneLabel: string,
+  assigned: boolean,
+): OfficeLayout {
+  if (!zoneExists(layout, zoneLabel)) return layout;
+  const current = layout.unassignedAgentZoneLabels ?? [];
+  const unassignedAgentZoneLabels = assigned
+    ? [zoneLabel]
+    : current.filter((label) => label !== zoneLabel);
+  const allAgentZoneLabels = assigned
+    ? (layout.allAgentZoneLabels ?? []).filter((label) => label !== zoneLabel)
+    : (layout.allAgentZoneLabels ?? []);
+
+  if (
+    unassignedAgentZoneLabels.length === current.length &&
+    unassignedAgentZoneLabels.every((label, index) => label === current[index]) &&
+    allAgentZoneLabels.length === (layout.allAgentZoneLabels ?? []).length
+  ) {
+    return layout;
+  }
+  return { ...layout, allAgentZoneLabels, unassignedAgentZoneLabels };
 }
 
 /** Place furniture. Returns new layout (immutable). */

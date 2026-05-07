@@ -8,12 +8,15 @@ import {
   addZone,
   expandLayout,
   paintZone,
+  removeZone,
   setAgentZoneAssignment,
   setAllAgentsZoneAssignment,
+  setUnassignedAgentsZoneAssignment,
 } from '../src/office/editor/editorActions.ts';
 import { OfficeState } from '../src/office/engine/officeState.ts';
-import type { OfficeLayout, TileType as TileTypeVal } from '../src/office/types.ts';
-import { TILE_SIZE, TileType } from '../src/office/types.ts';
+import { getLoadedCharacterCount } from '../src/office/sprites/spriteData.ts';
+import type { OfficeLayout, Seat, TileType as TileTypeVal } from '../src/office/types.ts';
+import { Direction, TILE_SIZE, TileType } from '../src/office/types.ts';
 import { getAppZoneAssignmentKey } from '../src/office/zoneAssignments.ts';
 
 function makeLayout(cols = 4, rows = 3): OfficeLayout {
@@ -28,6 +31,7 @@ function makeLayout(cols = 4, rows = 3): OfficeLayout {
     zones: [],
     zoneTiles: new Array(cols * rows).fill(null),
     allAgentZoneLabels: [],
+    unassignedAgentZoneLabels: [],
     agentZoneAssignments: {},
   };
 }
@@ -172,6 +176,54 @@ test('all-agent zones are shared by constrained base agents and subagents', () =
   assert.equal(officeState.isTileAllowedForAgent(subagentId, 2, 1), false);
 });
 
+test('unassigned agent zone applies only when an agent has no explicit zone', () => {
+  let layout = addZone(makeLayout(5, 3), 'Alpha', ZONE_DEFAULT_COLORS[0]);
+  layout = addZone(layout, 'Beta', ZONE_DEFAULT_COLORS[1]);
+  layout = paintZone(layout, 1, 1, 'Alpha');
+  layout = paintZone(layout, 2, 1, 'Beta');
+  layout = setUnassignedAgentsZoneAssignment(layout, 'Alpha', true);
+  layout = setAgentZoneAssignment(layout, 2, 'Beta', true);
+
+  const officeState = new OfficeState(layout);
+  officeState.addAgent(1, 0, 0, undefined, true);
+  officeState.addAgent(2, 1, 0, undefined, true);
+
+  assert.equal(officeState.isTileAllowedForAgent(1, 1, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(1, 2, 1), false);
+  assert.equal(officeState.isTileAllowedForAgent(2, 1, 1), false);
+  assert.equal(officeState.isTileAllowedForAgent(2, 2, 1), true);
+
+  const subagentId = officeState.addSubagent(1, 'task-unassigned');
+  assert.equal(officeState.isTileAllowedForAgent(subagentId, 1, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(subagentId, 2, 1), false);
+});
+
+test('unassigned agent zone assignment is exclusive and removed with its zone', () => {
+  let layout = addZone(makeLayout(), 'Alpha', ZONE_DEFAULT_COLORS[0]);
+  layout = addZone(layout, 'Beta', ZONE_DEFAULT_COLORS[1]);
+
+  layout = setUnassignedAgentsZoneAssignment(layout, 'Alpha', true);
+  assert.deepEqual(layout.unassignedAgentZoneLabels, ['Alpha']);
+
+  layout = setUnassignedAgentsZoneAssignment(layout, 'Beta', true);
+  assert.deepEqual(layout.unassignedAgentZoneLabels, ['Beta']);
+
+  layout = setUnassignedAgentsZoneAssignment(layout, 'Beta', false);
+  assert.deepEqual(layout.unassignedAgentZoneLabels, []);
+
+  layout = setUnassignedAgentsZoneAssignment(layout, 'Alpha', true);
+  layout = setAllAgentsZoneAssignment(layout, 'Alpha', true);
+  assert.deepEqual(layout.unassignedAgentZoneLabels, []);
+  assert.deepEqual(layout.allAgentZoneLabels, ['Alpha']);
+
+  layout = setUnassignedAgentsZoneAssignment(layout, 'Alpha', true);
+  assert.deepEqual(layout.unassignedAgentZoneLabels, ['Alpha']);
+  assert.deepEqual(layout.allAgentZoneLabels, []);
+
+  layout = removeZone(layout, 'Alpha');
+  assert.deepEqual(layout.unassignedAgentZoneLabels, []);
+});
+
 test('subagent clear can preserve background spawned agents', () => {
   const officeState = new OfficeState(makeLayout());
   officeState.addAgent(1, 0, 0, undefined, true);
@@ -187,4 +239,89 @@ test('subagent clear can preserve background spawned agents', () => {
   assert.equal(officeState.characters.get(foregroundSubagentId)?.matrixEffect, 'despawn');
 
   assert.equal(officeState.addSubagent(1, 'spawn-agent'), backgroundSubagentId);
+});
+
+test('spawned subagents use a varied skin and the nearest free workstation', () => {
+  const officeState = new OfficeState(makeLayout(8, 3));
+  officeState.addAgent(1, 0, 0, undefined, true);
+
+  const agent = officeState.characters.get(1);
+  assert.ok(agent);
+  agent.tileCol = 1;
+  agent.tileRow = 1;
+  agent.x = agent.tileCol * TILE_SIZE + TILE_SIZE / 2;
+  agent.y = agent.tileRow * TILE_SIZE + TILE_SIZE / 2;
+
+  const nearSeat: Seat = {
+    uid: 'near-workstation',
+    seatCol: 2,
+    seatRow: 1,
+    facingDir: Direction.DOWN,
+    assigned: false,
+  };
+  const farSeat: Seat = {
+    uid: 'far-workstation',
+    seatCol: 6,
+    seatRow: 1,
+    facingDir: Direction.DOWN,
+    assigned: false,
+  };
+  officeState.seats.set(nearSeat.uid, nearSeat);
+  officeState.seats.set(farSeat.uid, farSeat);
+
+  const subagentId = officeState.addSubagent(1, 'spawn-working');
+  const subagent = officeState.characters.get(subagentId);
+  assert.ok(subagent);
+
+  assert.equal(subagent.seatId, 'near-workstation');
+  assert.equal(subagent.tileCol, nearSeat.seatCol);
+  assert.equal(subagent.tileRow, nearSeat.seatRow);
+  assert.equal(officeState.seats.get('near-workstation')?.assigned, true);
+  assert.equal(officeState.seats.get('far-workstation')?.assigned, false);
+  if (getLoadedCharacterCount() > 1) {
+    assert.notEqual(subagent.palette, agent.palette);
+  }
+});
+
+test('spawned subagents choose workstations allowed by the parent zone', () => {
+  let layout = addZone(makeLayout(8, 3), 'Alpha', ZONE_DEFAULT_COLORS[0]);
+  layout = addZone(layout, 'Beta', ZONE_DEFAULT_COLORS[1]);
+  layout = paintZone(layout, 5, 1, 'Alpha');
+  layout = paintZone(layout, 2, 1, 'Beta');
+  layout = setAgentZoneAssignment(layout, 1, 'Alpha', true);
+
+  const officeState = new OfficeState(layout);
+  officeState.addAgent(1, 0, 0, undefined, true);
+
+  const agent = officeState.characters.get(1);
+  assert.ok(agent);
+  agent.tileCol = 1;
+  agent.tileRow = 1;
+  agent.x = agent.tileCol * TILE_SIZE + TILE_SIZE / 2;
+  agent.y = agent.tileRow * TILE_SIZE + TILE_SIZE / 2;
+
+  officeState.seats.set('beta-near', {
+    uid: 'beta-near',
+    seatCol: 2,
+    seatRow: 1,
+    facingDir: Direction.DOWN,
+    assigned: false,
+  });
+  officeState.seats.set('alpha-far', {
+    uid: 'alpha-far',
+    seatCol: 5,
+    seatRow: 1,
+    facingDir: Direction.DOWN,
+    assigned: false,
+  });
+
+  const subagentId = officeState.addSubagent(1, 'spawn-zoned');
+  const subagent = officeState.characters.get(subagentId);
+  assert.ok(subagent);
+
+  assert.equal(subagent.seatId, 'alpha-far');
+  assert.equal(officeState.seats.get('alpha-far')?.assigned, true);
+  assert.equal(officeState.seats.get('beta-near')?.assigned, false);
+  assert.equal(officeState.isTileAllowedForAgent(subagentId, 5, 1), true);
+  assert.equal(officeState.isTileAllowedForAgent(subagentId, 2, 1), false);
 });

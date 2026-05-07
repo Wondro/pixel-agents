@@ -266,6 +266,9 @@ function App() {
                   selectedWallSet={editorState.selectedWallSet}
                   zones={officeState.getLayout().zones ?? []}
                   allAgentZoneLabels={officeState.getLayout().allAgentZoneLabels ?? []}
+                  unassignedAgentZoneLabels={
+                    officeState.getLayout().unassignedAgentZoneLabels ?? []
+                  }
                   agentZoneAssignments={officeState.getLayout().agentZoneAssignments ?? {}}
                   baseAgents={baseAgentOptions}
                   onToolChange={editor.handleToolChange}
@@ -280,6 +283,9 @@ function App() {
                   onRemoveZone={editor.handleRemoveZone}
                   onAgentZoneAssignmentChange={editor.handleAgentZoneAssignmentChange}
                   onAllAgentsZoneAssignmentChange={editor.handleAllAgentsZoneAssignmentChange}
+                  onUnassignedAgentsZoneAssignmentChange={
+                    editor.handleUnassignedAgentsZoneAssignmentChange
+                  }
                   loadedAssets={loadedAssets}
                 />
               );
